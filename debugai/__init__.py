@@ -14,11 +14,34 @@ Public API (Level 1 integration):
 
 from debugai.schema import CaptureRecord
 from debugai.analyze import analyze
-from debugai.sdk import wrap_llm, retrieval_context, session, http_trace_sink
+from debugai.config import DebugAIConfig
+from debugai.metrics import metrics
+from debugai.sdk import (
+    wrap_llm, awrap_llm, retrieval_context, session, http_trace_sink,
+    completion, acompletion, CompletionResponse,
+    register_provider, register_adapter, set_default_config,
+    _GenericOpenAICompatAdapter,
+)
 from debugai.tracing import Trace, Span, Tracer, Score
 
 __all__ = [
-    "analyze", "CaptureRecord", "wrap_llm", "retrieval_context", "session",
-    "http_trace_sink", "Trace", "Span", "Tracer", "Score",
+    # Core
+    "analyze", "CaptureRecord",
+    # Config & metrics
+    "DebugAIConfig", "metrics",
+    # SDK wrappers
+    "wrap_llm", "awrap_llm",
+    # Universal completion API
+    "completion", "acompletion", "CompletionResponse",
+    # Registration
+    "register_provider", "register_adapter", "set_default_config",
+    # Context managers
+    "retrieval_context", "session",
+    # Observability
+    "Trace", "Span", "Tracer", "Score",
+    # Sinks
+    "http_trace_sink",
+    # Adapters
+    "_GenericOpenAICompatAdapter",
 ]
-__version__ = "0.1.0"
+__version__ = "0.2.0"

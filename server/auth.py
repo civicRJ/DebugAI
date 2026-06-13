@@ -1,8 +1,16 @@
-"""Authentication store — users + sessions in a stdlib SQLite DB.
+"""Authentication store — users + sessions in SQLite (dev) or PostgreSQL (prod).
 
-Passwords are hashed with scrypt + a per-user random salt (stdlib `hashlib`);
-sessions are random opaque tokens stored server-side (so logout / account
-deletion truly revoke them). No third-party auth dependencies.
+Root-cause note (session disappearing in production):
+The session cookie is set by _set_session() in app.py.  When deployed behind a
+reverse proxy (nginx/Caddy), FastAPI sees the *internal* HTTP scheme even though
+the browser communicates over HTTPS.  `secure=request.url.scheme == "https"` then
+evaluates to False, and modern browsers silently drop non-Secure cookies on HTTPS
+pages.  Fix: honour X-Forwarded-Proto when DEBUGAI_TRUST_PROXY env var is set.
+This file (auth.py) is correct — the fix lives in app.py:_set_session().
+
+Storage: uses SQLAlchemy Core so the same code works for SQLite (local dev,
+no DATABASE_URL set) and PostgreSQL (production, DATABASE_URL set). Connection
+pooling is configured in server/db.py.
 """
 
 from __future__ import annotations
@@ -11,23 +19,22 @@ import hashlib
 import hmac
 import re
 import secrets
-import sqlite3
 import threading
 import time
 from pathlib import Path
 
-from server.paths import data_path
+from sqlalchemy import text
 
-_DB = data_path("debugai.db")
+from server.db import get_engine
+
 _SESSION_TTL = 30 * 24 * 3600  # 30 days
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# scrypt parameters (RFC 7914 interactive-login range).
 _N, _R, _P, _DKLEN = 16384, 8, 1, 32
 
 
 class AuthError(ValueError):
-    """Raised for invalid input or auth conflicts (mapped to 4xx by the API)."""
+    pass
 
 
 def _hash_password(password: str, salt: bytes) -> str:
@@ -36,16 +43,21 @@ def _hash_password(password: str, salt: bytes) -> str:
 
 
 class AuthStore:
-    def __init__(self, db_path: Path = _DB):
+    def __init__(self, db_path=None):
+        """db_path is accepted for test fixtures (overrides the default engine)."""
         self._lock = threading.Lock()
-        self._conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._conn.row_factory = sqlite3.Row
+        if db_path is not None:
+            # Test-only path: use a dedicated SQLite file at db_path.
+            from sqlalchemy import create_engine
+            self._engine = create_engine(
+                f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+        else:
+            self._engine = get_engine()
         self._init_schema()
 
     def _init_schema(self) -> None:
-        with self._lock:
-            self._conn.executescript(
-                """
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS users (
                     id TEXT PRIMARY KEY,
                     email TEXT UNIQUE NOT NULL,
@@ -53,12 +65,16 @@ class AuthStore:
                     pw_hash TEXT NOT NULL,
                     pw_salt TEXT NOT NULL,
                     created_at REAL NOT NULL
-                );
+                )
+            """))
+            conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     token TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
                     expires_at REAL NOT NULL
-                );
+                )
+            """))
+            conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS api_tokens (
                     id TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
@@ -66,16 +82,13 @@ class AuthStore:
                     token_hash TEXT UNIQUE NOT NULL,
                     created_at REAL NOT NULL,
                     last_used REAL
-                );
-                """
-            )
-            self._conn.commit()
+                )
+            """))
 
-    # --- helpers -----------------------------------------------------------
     @staticmethod
-    def _public(row: sqlite3.Row) -> dict:
-        return {"id": row["id"], "email": row["email"], "name": row["name"],
-                "created_at": row["created_at"]}
+    def _public(row) -> dict:
+        return {"id": row.id, "email": row.email, "name": row.name,
+                "created_at": row.created_at}
 
     @staticmethod
     def _validate(email: str, name: str, password: str | None) -> None:
@@ -86,152 +99,147 @@ class AuthStore:
         if password is not None and len(password) < 8:
             raise AuthError("Password must be at least 8 characters.")
 
-    # --- users -------------------------------------------------------------
+    # ── Users ────────────────────────────────────────────────────────────────
     def register(self, email: str, name: str, password: str) -> dict:
         email = (email or "").strip().lower()
         name = (name or "").strip()
         self._validate(email, name, password)
         uid = secrets.token_hex(8)
         salt = secrets.token_bytes(16)
-        with self._lock:
+        with self._lock, self._engine.begin() as conn:
             try:
-                self._conn.execute(
-                    "INSERT INTO users VALUES (?,?,?,?,?,?)",
-                    (uid, email, name, _hash_password(password, salt), salt.hex(), time.time()),
-                )
-                self._conn.commit()
-            except sqlite3.IntegrityError:
-                raise AuthError("An account with that email already exists.")
-            row = self._conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+                conn.execute(text(
+                    "INSERT INTO users VALUES (:id,:email,:name,:pw_hash,:pw_salt,:created_at)"
+                ), {"id": uid, "email": email, "name": name,
+                    "pw_hash": _hash_password(password, salt),
+                    "pw_salt": salt.hex(), "created_at": time.time()})
+            except Exception as e:
+                if "unique" in str(e).lower() or "UNIQUE" in str(e):
+                    raise AuthError("An account with that email already exists.")
+                raise
+            row = conn.execute(text("SELECT * FROM users WHERE id=:id"), {"id": uid}).fetchone()
         return self._public(row)
 
     def authenticate(self, email: str, password: str) -> dict | None:
         email = (email or "").strip().lower()
-        with self._lock:
-            row = self._conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        with self._engine.connect() as conn:
+            row = conn.execute(text("SELECT * FROM users WHERE email=:email"), {"email": email}).fetchone()
         if row is None:
-            # Equalise timing whether or not the email exists.
             _hash_password(password or "", b"0" * 16)
             return None
-        expected = row["pw_hash"]
-        actual = _hash_password(password or "", bytes.fromhex(row["pw_salt"]))
-        if not hmac.compare_digest(expected, actual):
+        actual = _hash_password(password or "", bytes.fromhex(row.pw_salt))
+        if not hmac.compare_digest(row.pw_hash, actual):
             return None
         return self._public(row)
 
     def get_user(self, user_id: str) -> dict | None:
-        with self._lock:
-            row = self._conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+        with self._engine.connect() as conn:
+            row = conn.execute(text("SELECT * FROM users WHERE id=:id"), {"id": user_id}).fetchone()
         return self._public(row) if row else None
 
     def update_user(self, user_id: str, *, name: str | None = None,
                     email: str | None = None, new_password: str | None = None) -> dict:
-        with self._lock:
-            row = self._conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+        with self._lock, self._engine.begin() as conn:
+            row = conn.execute(text("SELECT * FROM users WHERE id=:id"), {"id": user_id}).fetchone()
             if row is None:
                 raise AuthError("Account not found.")
-            new_name = (name if name is not None else row["name"]).strip()
-            new_email = (email if email is not None else row["email"]).strip().lower()
+            new_name = (name if name is not None else row.name).strip()
+            new_email = (email if email is not None else row.email).strip().lower()
             self._validate(new_email, new_name, new_password)
-            pw_hash, pw_salt = row["pw_hash"], row["pw_salt"]
+            pw_hash, pw_salt = row.pw_hash, row.pw_salt
             if new_password:
                 salt = secrets.token_bytes(16)
                 pw_hash, pw_salt = _hash_password(new_password, salt), salt.hex()
             try:
-                self._conn.execute(
-                    "UPDATE users SET name=?, email=?, pw_hash=?, pw_salt=? WHERE id=?",
-                    (new_name, new_email, pw_hash, pw_salt, user_id),
-                )
-                self._conn.commit()
-            except sqlite3.IntegrityError:
-                raise AuthError("That email is already in use.")
-            updated = self._conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+                conn.execute(text(
+                    "UPDATE users SET name=:name,email=:email,pw_hash=:pw_hash,pw_salt=:pw_salt WHERE id=:id"
+                ), {"name": new_name, "email": new_email, "pw_hash": pw_hash, "pw_salt": pw_salt, "id": user_id})
+            except Exception as e:
+                if "unique" in str(e).lower() or "UNIQUE" in str(e):
+                    raise AuthError("That email is already in use.")
+                raise
+            updated = conn.execute(text("SELECT * FROM users WHERE id=:id"), {"id": user_id}).fetchone()
         return self._public(updated)
 
     def delete_user(self, user_id: str) -> None:
-        with self._lock:
-            self._conn.execute("DELETE FROM sessions WHERE user_id=?", (user_id,))
-            self._conn.execute("DELETE FROM api_tokens WHERE user_id=?", (user_id,))
-            self._conn.execute("DELETE FROM users WHERE id=?", (user_id,))
-            self._conn.commit()
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("DELETE FROM sessions WHERE user_id=:id"), {"id": user_id})
+            conn.execute(text("DELETE FROM api_tokens WHERE user_id=:id"), {"id": user_id})
+            conn.execute(text("DELETE FROM users WHERE id=:id"), {"id": user_id})
 
-    # --- sessions ----------------------------------------------------------
+    # ── Sessions ─────────────────────────────────────────────────────────────
     def create_session(self, user_id: str) -> str:
         token = secrets.token_urlsafe(32)
-        with self._lock:
-            self._conn.execute("INSERT INTO sessions VALUES (?,?,?)",
-                               (token, user_id, time.time() + _SESSION_TTL))
-            self._conn.commit()
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("INSERT INTO sessions VALUES (:token,:user_id,:expires_at)"),
+                         {"token": token, "user_id": user_id,
+                          "expires_at": time.time() + _SESSION_TTL})
         return token
 
     def user_for_token(self, token: str | None) -> dict | None:
         if not token:
             return None
-        with self._lock:
-            row = self._conn.execute(
+        with self._engine.connect() as conn:
+            row = conn.execute(text(
                 "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id "
-                "WHERE s.token=? AND s.expires_at > ?", (token, time.time()),
-            ).fetchone()
+                "WHERE s.token=:token AND s.expires_at > :now"
+            ), {"token": token, "now": time.time()}).fetchone()
         return self._public(row) if row else None
 
     def delete_session(self, token: str | None) -> None:
         if not token:
             return
-        with self._lock:
-            self._conn.execute("DELETE FROM sessions WHERE token=?", (token,))
-            self._conn.commit()
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("DELETE FROM sessions WHERE token=:token"), {"token": token})
 
-    # --- API tokens (programmatic access, e.g. the wrap_llm SDK) -----------
+    # ── API tokens ────────────────────────────────────────────────────────────
     @staticmethod
     def _token_hash(token: str) -> str:
         return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     def create_api_token(self, user_id: str, name: str) -> dict:
-        """Create a token. The plaintext is returned ONCE (only its hash is stored)."""
         name = (name or "token").strip()[:80] or "token"
         token = "dbg_" + secrets.token_urlsafe(32)
         tid = secrets.token_hex(8)
-        with self._lock:
-            self._conn.execute(
-                "INSERT INTO api_tokens VALUES (?,?,?,?,?,?)",
-                (tid, user_id, name, self._token_hash(token), time.time(), None),
-            )
-            self._conn.commit()
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text(
+                "INSERT INTO api_tokens VALUES (:id,:user_id,:name,:token_hash,:created_at,:last_used)"
+            ), {"id": tid, "user_id": user_id, "name": name,
+                "token_hash": self._token_hash(token), "created_at": time.time(), "last_used": None})
         return {"id": tid, "name": name, "token": token}
 
     def list_api_tokens(self, user_id: str) -> list[dict]:
-        with self._lock:
-            rows = self._conn.execute(
-                "SELECT id, name, created_at, last_used FROM api_tokens "
-                "WHERE user_id=? ORDER BY created_at DESC", (user_id,),
-            ).fetchall()
-        return [{"id": r["id"], "name": r["name"], "created_at": r["created_at"],
-                 "last_used": r["last_used"]} for r in rows]
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT id,name,created_at,last_used FROM api_tokens "
+                "WHERE user_id=:id ORDER BY created_at DESC"
+            ), {"id": user_id}).fetchall()
+        return [{"id": r.id, "name": r.name, "created_at": r.created_at,
+                 "last_used": r.last_used} for r in rows]
 
     def revoke_api_token(self, user_id: str, token_id: str) -> None:
-        with self._lock:
-            self._conn.execute("DELETE FROM api_tokens WHERE id=? AND user_id=?",
-                               (token_id, user_id))
-            self._conn.commit()
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("DELETE FROM api_tokens WHERE id=:id AND user_id=:uid"),
+                         {"id": token_id, "uid": user_id})
 
     def user_for_api_token(self, token: str | None) -> dict | None:
         if not token:
             return None
         h = self._token_hash(token)
-        with self._lock:
-            row = self._conn.execute(
+        with self._engine.connect() as conn:
+            row = conn.execute(text(
                 "SELECT u.* FROM api_tokens t JOIN users u ON u.id = t.user_id "
-                "WHERE t.token_hash=?", (h,),
-            ).fetchone()
+                "WHERE t.token_hash=:h"
+            ), {"h": h}).fetchone()
             if row is not None:
-                self._conn.execute("UPDATE api_tokens SET last_used=? WHERE token_hash=?",
-                                   (time.time(), h))
-                self._conn.commit()
+                with self._lock, self._engine.begin() as c:
+                    c.execute(text("UPDATE api_tokens SET last_used=:now WHERE token_hash=:h"),
+                              {"now": time.time(), "h": h})
         return self._public(row) if row else None
 
     def clear(self) -> None:
         """Test helper — wipe all users, sessions, and tokens."""
-        with self._lock:
-            self._conn.executescript(
-                "DELETE FROM sessions; DELETE FROM api_tokens; DELETE FROM users;")
-            self._conn.commit()
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("DELETE FROM sessions"))
+            conn.execute(text("DELETE FROM api_tokens"))
+            conn.execute(text("DELETE FROM users"))

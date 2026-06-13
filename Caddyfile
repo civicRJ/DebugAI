@@ -1,0 +1,8 @@
+# DebugAI reverse proxy — auto-provisions a Let's Encrypt TLS certificate when
+# DEBUGAI_DOMAIN is a real public domain. For local dev (no DEBUGAI_DOMAIN set)
+# Caddy serves on localhost with a self-signed certificate.
+#
+# Set DEBUGAI_DOMAIN=yourdomain.com in .env before running docker compose up.
+{$DEBUGAI_DOMAIN:localhost} {
+    reverse_proxy debugai:8000
+}

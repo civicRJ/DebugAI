@@ -16,5 +16,9 @@ numpy>=1.26
 fastapi>=0.110
 uvicorn[standard]>=0.29
 
+# PostgreSQL support (optional — falls back to SQLite/JSON when DATABASE_URL unset)
+psycopg2-binary>=2.9
+sqlalchemy>=2.0
+
 # Dev / test
 pytest>=8.0

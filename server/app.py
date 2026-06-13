@@ -105,9 +105,19 @@ def require_user(request: Request) -> dict:
 
 def _set_session(resp: Response, request: Request, user_id: str) -> None:
     token = auth_store.create_session(user_id)
+    # When running behind a reverse proxy (nginx/Caddy), FastAPI sees the internal
+    # HTTP scheme even though the browser sees HTTPS — so the cookie would be set
+    # without Secure and the browser silently drops it on HTTPS connections.
+    # Fix: honour X-Forwarded-Proto when DEBUGAI_TRUST_PROXY is set.
+    trust_proxy = os.environ.get("DEBUGAI_TRUST_PROXY")
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    is_secure = (
+        (bool(trust_proxy) and forwarded_proto == "https")
+        or request.url.scheme == "https"
+    )
     resp.set_cookie(
         SESSION_COOKIE, token, httponly=True, samesite="lax",
-        secure=request.url.scheme == "https", max_age=30 * 24 * 3600, path="/",
+        secure=is_secure, max_age=30 * 24 * 3600, path="/",
     )
 
 
@@ -352,6 +362,32 @@ def api_health():
 def api_stats(user: dict = Depends(require_user)):
     _ensure_seeded(user["id"])
     return store.stats(owner=user["id"])
+
+
+@app.get("/api/health")
+def api_health():
+    """Liveness/readiness probe (no auth) — used by Docker HEALTHCHECK / LBs."""
+    return {"status": "ok"}
+
+
+@app.get("/api/auth/debug")
+def api_auth_debug(request: Request):
+    """Dev-only: diagnose cookie/session state. Only available when DEBUG=true."""
+    if not os.environ.get("DEBUG"):
+        raise HTTPException(status_code=404)
+    user = current_user(request)
+    cookie = request.cookies.get(SESSION_COOKIE)
+    trust_proxy = os.environ.get("DEBUGAI_TRUST_PROXY")
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    return {
+        "cookie_present": bool(cookie),
+        "cookie_length": len(cookie) if cookie else 0,
+        "user": user,
+        "scheme": request.url.scheme,
+        "trust_proxy": bool(trust_proxy),
+        "forwarded_proto": forwarded_proto,
+        "effective_secure": bool(trust_proxy) and forwarded_proto == "https" or request.url.scheme == "https",
+    }
 
 
 @app.get("/api/thresholds")

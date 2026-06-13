@@ -116,6 +116,54 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+_AUTH_PATHS = {"/api/auth/login", "/api/auth/register"}
+
+
+class AuthRateLimitMiddleware(BaseHTTPMiddleware):
+    """Stricter rate limit on auth endpoints (login + register) to prevent
+    brute-force and registration spam. Default 10 req/min/IP, separate from
+    the general DEBUGAI_RATE_LIMIT. Set DEBUGAI_AUTH_RATE_LIMIT=0 to disable."""
+
+    def __init__(self, app, per_minute: int | None = None):
+        # Read dynamically so tests can override via conftest env vars.
+        per_minute = per_minute if per_minute is not None else int(os.environ.get("DEBUGAI_AUTH_RATE_LIMIT", "10"))
+        super().__init__(app)
+        self._limit = per_minute
+        self._window = 60.0
+        self._lock = threading.Lock()
+        self._hits: dict[str, tuple[float, int]] = {}
+
+    def _client(self, request: Request) -> str:
+        if os.environ.get("DEBUGAI_TRUST_PROXY"):
+            fwd = request.headers.get("x-forwarded-for")
+            if fwd:
+                return fwd.split(",")[0].strip()
+        return request.client.host if request.client else "unknown"
+
+    async def dispatch(self, request: Request, call_next):
+        # Read limit dynamically so DEBUGAI_AUTH_RATE_LIMIT=0 works at runtime
+        # (important for tests that set env vars after module import).
+        effective_limit = int(os.environ.get("DEBUGAI_AUTH_RATE_LIMIT", str(self._limit)))
+        if effective_limit <= 0 or request.url.path not in _AUTH_PATHS:
+            return await call_next(request)
+        now = time.monotonic()
+        ip = self._client(request)
+        with self._lock:
+            start, count = self._hits.get(ip, (now, 0))
+            if now - start >= self._window:
+                start, count = now, 0
+            count += 1
+            self._hits[ip] = (start, count)
+            if len(self._hits) > 10_000:
+                self._hits = {k: v for k, v in self._hits.items() if now - v[0] < self._window}
+            over = count > effective_limit
+            retry = max(1, int(self._window - (now - start)))
+        if over:
+            return JSONResponse({"detail": "too many attempts — try again later"},
+                                status_code=429, headers={"Retry-After": str(retry)})
+        return await call_next(request)
+
+
 def install(app) -> None:
     """Attach the security stack. Starlette runs the LAST-added middleware
     outermost, so add inner→outer to get this execution order:
@@ -130,6 +178,7 @@ def install(app) -> None:
     DEBUGAI_API_KEY gate. APIKeyMiddleware remains available for deployments
     that still want a coarse network-level key in front of everything.
     """
+    app.add_middleware(AuthRateLimitMiddleware)   # auth endpoints: 10 req/min/IP
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)

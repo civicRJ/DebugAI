@@ -21,3 +21,5 @@ server/thresholds_*.json
 server/traces.json
 server/*.json.tmp
 server/debugai.db
+server/*.db
+design-system/

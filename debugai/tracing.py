@@ -24,22 +24,77 @@ from typing import Any, Callable
 
 # USD per 1M tokens (input, output). Prefix match; unknown models → 0 cost.
 MODEL_PRICES: dict[str, tuple[float, float]] = {
+    # ── Anthropic ─────────────────────────────────────────────────
     "claude-opus-4-8": (15.0, 75.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (0.80, 4.0),
+    "claude-3-5-sonnet": (3.0, 15.0),
     "claude-3-5-haiku": (0.80, 4.0),
+    "claude-3-opus": (15.0, 75.0),
+    "claude-3-sonnet": (3.0, 15.0),
+    "claude-3-haiku": (0.25, 1.25),
+    # ── OpenAI ────────────────────────────────────────────────────
     "gpt-4o-mini": (0.15, 0.60),
     "gpt-4o": (2.50, 10.0),
     "gpt-4.1": (2.0, 8.0),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4-turbo": (10.0, 30.0),
+    "gpt-4": (30.0, 60.0),
+    "gpt-3.5-turbo": (0.50, 1.50),
+    "o1": (15.0, 60.0),
+    "o1-mini": (3.0, 12.0),
+    "o3": (10.0, 40.0),
+    "o3-mini": (1.10, 4.40),
     "o4-mini": (1.10, 4.40),
+    # ── Google Gemini ──────────────────────────────────────────────
+    "gemini-2.0-flash": (0.10, 0.40),
+    "gemini-2.0-pro": (1.25, 5.0),
+    "gemini-1.5-flash": (0.075, 0.30),
+    "gemini-1.5-pro": (1.25, 5.0),
+    "gemini-1.0-pro": (0.50, 1.50),
+    # ── Mistral AI ────────────────────────────────────────────────
+    "mistral-large": (2.0, 6.0),
+    "mistral-small": (0.20, 0.60),
+    "mistral-nemo": (0.15, 0.15),
+    "codestral": (0.20, 0.60),
+    # ── Groq (fast inference — pricing per 1M tokens) ─────────────
+    "groq/llama-3.3-70b": (0.59, 0.79),
+    "groq/llama-3.1-8b": (0.05, 0.08),
+    "groq/mixtral-8x7b": (0.24, 0.24),
+    "groq/gemma2-9b": (0.20, 0.20),
+    # ── Together AI ───────────────────────────────────────────────
+    "together/llama-3.3-70b": (0.88, 0.88),
+    "together/qwen2.5-72b": (1.20, 1.20),
+    # ── Cohere ────────────────────────────────────────────────────
+    "command-r-plus": (2.50, 10.0),
+    "command-r": (0.15, 0.60),
+    "command-": (1.0, 2.0),   # prefix for older Command models
+    # ── Local / Ollama — no API cost ──────────────────────────────
+    # All ollama/* and local model prefixes return 0 cost.
+    "ollama/": (0.0, 0.0),
+    "qwen": (0.0, 0.0),
+    "llama": (0.0, 0.0),
+    "phi": (0.0, 0.0),
+    "deepseek": (0.0, 0.0),
+    "codellama": (0.0, 0.0),
+    "gemma": (0.0, 0.0),
+    "mixtral": (0.0, 0.0),  # local via Ollama (hosted Mixtral on Groq has price above)
+    "vicuna": (0.0, 0.0),
 }
 
 
-def estimate_cost(model: str | None, prompt_tokens: int, completion_tokens: int) -> float:
+def estimate_cost(model: str | None, prompt_tokens: int, completion_tokens: int,
+                  extra_prices: dict | None = None) -> float:
+    """Estimate cost for a model call. ``extra_prices`` (from DebugAIConfig.model_prices)
+    is checked first and takes precedence over the built-in table."""
     if not model:
         return 0.0
     price = None
-    for prefix, p in MODEL_PRICES.items():
+    # Check user overrides first.
+    combined = dict(MODEL_PRICES)
+    if extra_prices:
+        combined.update(extra_prices)
+    for prefix, p in combined.items():
         if model.startswith(prefix):
             price = p
             break

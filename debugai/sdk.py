@@ -28,6 +28,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+import json as _json_mod
+
 from debugai.analyze import analyze
 from debugai.config import DebugAIConfig
 from debugai.metrics import metrics as _global_metrics
@@ -184,20 +186,71 @@ class _AnthropicAdapter:
         return text, usage
 
 
-class _GenericOpenAICompatAdapter(_OpenAIAdapter):
-    """Matches any OpenAI-API-compatible client (Azure OpenAI, Together, Groq,
-    Fireworks, Ollama, LiteLLM proxy, etc.) that exposes the same
-    .chat.completions.create() interface."""
+class _OpenAICompatAdapter(_OpenAIAdapter):
+    """Matches any OpenAI-API-compatible client: Azure, Groq, Together AI, Mistral,
+    Ollama (Qwen, Llama, Phi, DeepSeek…), OpenRouter, LM Studio, vLLM.
+
+    Identical create_path/from_request/from_response to _OpenAIAdapter.
+    The difference is only in the base_url the client was constructed with."""
     create_path = ("chat", "completions", "create")
 
     @staticmethod
     def matches(client: Any) -> bool:
-        # Same shape as OpenAI; caller opts in via wrap_llm(client, adapter=...) or
-        # explicit registration — we don't auto-detect to avoid false positives.
-        return False  # must be registered explicitly or used via register_provider()
+        return _OpenAIAdapter.matches(client) and not _AnthropicAdapter.matches(client)
 
 
-_ADAPTERS = [_AnthropicAdapter, _OpenAIAdapter]
+# Backward-compat alias.
+_GenericOpenAICompatAdapter = _OpenAICompatAdapter
+
+
+class _CohereAdapter:
+    """Native Cohere SDK adapter (ClientV2). Requires: pip install cohere"""
+
+    create_path = ("chat",)
+
+    @staticmethod
+    def matches(client: Any) -> bool:
+        return (callable(getattr(client, "chat", None)) and
+                hasattr(client, "embed") and
+                not hasattr(client, "messages"))
+
+    @staticmethod
+    def from_request(kwargs: dict) -> "_Captured":
+        msgs = kwargs.get("messages") or []
+        system = " ".join(m.get("message", m.get("content", "")) for m in msgs
+                          if m.get("role", "").upper() in ("SYSTEM", "system"))
+        user = " ".join(m.get("message", m.get("content", "")) for m in msgs
+                        if m.get("role", "").upper() in ("USER", "user"))
+        return _Captured(
+            system_prompt=system,
+            user_prompt=user,
+            model_name=kwargs.get("model"),
+            temperature=kwargs.get("temperature"),
+            max_tokens=kwargs.get("max_tokens"),
+        )
+
+    @staticmethod
+    def from_response(resp: Any) -> tuple[str, dict]:
+        text = ""
+        try:
+            text = resp.message.content[0].text or ""
+        except Exception:
+            try:
+                text = resp.text or ""
+            except Exception:
+                pass
+        usage = {}
+        try:
+            u = resp.meta.tokens
+            inp = getattr(u, "input_tokens", 0) or 0
+            out = getattr(u, "output_tokens", 0) or 0
+            usage = {"prompt": inp, "completion": out, "total": inp + out}
+        except Exception:
+            pass
+        return text, usage
+
+
+_ADAPTERS = [_AnthropicAdapter, _OpenAICompatAdapter, _OpenAIAdapter, _CohereAdapter]
 _EXTRA_ADAPTERS: list = []
 
 
@@ -211,11 +264,48 @@ def _detect_adapter(client: Any):
         if adapter.matches(client):
             return adapter
     raise TypeError(
-        "wrap_llm: unrecognised client. Expected an OpenAI "
-        "(.chat.completions.create) or Anthropic (.messages.create) client. "
-        "For other OpenAI-compatible clients (Azure, Groq, Ollama…), use "
-        "_GenericOpenAICompatAdapter or register_provider()."
+        "wrap_llm: unrecognised client. Supported: OpenAI-compatible clients "
+        "(.chat.completions.create), Anthropic (.messages.create), Cohere (.chat + .embed). "
+        "For custom providers use register_adapter() or register_provider()."
     )
+
+
+def _validate_json_schema(output: str, schema: dict) -> list[str]:
+    """Validate a JSON response against a JSON Schema dict. Returns a list of
+    violation strings, or an empty list if valid. Stdlib only (no jsonschema pkg)."""
+    if not schema:
+        return []
+    # Step 1: is it valid JSON?
+    try:
+        data = _json_mod.loads(output.strip())
+    except _json_mod.JSONDecodeError as e:
+        return [f"Output is not valid JSON: {e}"]
+    violations = []
+    # Step 2: basic type checking against the schema (no external dependency).
+    schema_type = schema.get("type")
+    if schema_type:
+        type_map = {"object": dict, "array": list, "string": str,
+                    "number": (int, float), "integer": int, "boolean": bool}
+        expected = type_map.get(schema_type)
+        if expected and not isinstance(data, expected):
+            violations.append(
+                f"Expected JSON {schema_type}, got {type(data).__name__}")
+    # Step 3: check required properties.
+    if isinstance(data, dict):
+        for req in schema.get("required", []):
+            if req not in data:
+                violations.append(f"Missing required property: '{req}'")
+        # Step 4: check property types.
+        for prop, prop_schema in schema.get("properties", {}).items():
+            if prop in data and isinstance(prop_schema, dict):
+                ptype = prop_schema.get("type")
+                type_map = {"string": str, "number": (int, float),
+                            "integer": int, "boolean": bool, "array": list, "object": dict}
+                expected = type_map.get(ptype)
+                if expected and not isinstance(data[prop], expected):
+                    violations.append(
+                        f"Property '{prop}' should be {ptype}, got {type(data[prop]).__name__}")
+    return violations
 
 
 # --------------------------------------------------------------------------- #
@@ -357,6 +447,16 @@ class _Diagnoser:
                     "latency_ms": job.latency_ms,
                     "failed": failed,
                 })
+
+        # B2: JSON schema validation (runs regardless of other diagnosis).
+        if cfg.response_schema and job.output:
+            violations = _validate_json_schema(job.output, cfg.response_schema)
+            if violations:
+                if cfg.on_schema_violation:
+                    try:
+                        cfg.on_schema_violation(job.output, violations)
+                    except Exception as e:
+                        log.warning("on_schema_violation callback failed: %s", e)
 
     def _build_trace(self, job: _Job, result: dict) -> Trace:
         """Turn a captured call + its diagnosis into an observability trace."""
@@ -551,6 +651,8 @@ class CompletionResponse:
         self.latency_ms = latency_ms
         self.model = model
         self.raw = raw
+        self.fallback_attempts: list[tuple[str, str]] = []
+        """List of (model, error) pairs for any fallback attempts before success."""
 
     def __repr__(self):
         return (f"CompletionResponse(model={self.model!r}, "
@@ -565,32 +667,19 @@ _PROVIDER_REGISTRY: list[tuple[Callable, "type[_OpenAIAdapter]", Callable]] = []
 
 
 def _default_providers():
-    """Returns [(prefix_test_fn, adapter, client_factory)] for built-in providers."""
+    """Backward-compat shim used by tests that monkeypatch this function.
+    Real routing now goes through the PROVIDER_ROUTES table in providers.py."""
+    from debugai.providers import PROVIDER_ROUTES, _ADAPTER_MAP
+
     entries = []
-
-    def openai_matches(model: str) -> bool:
-        return any(model.startswith(p) for p in
-                   ("gpt-", "o1-", "o3-", "o4-", "text-", "davinci", "curie"))
-
-    def openai_factory():
-        try:
-            from openai import OpenAI
-            return OpenAI(timeout=60.0)
-        except Exception:
-            raise ImportError("OpenAI model requested but openai package not installed.")
-
-    def anthropic_matches(model: str) -> bool:
-        return model.startswith("claude")
-
-    def anthropic_factory():
-        try:
-            from anthropic import Anthropic
-            return Anthropic(timeout=60.0)
-        except Exception:
-            raise ImportError("Anthropic model requested but anthropic package not installed.")
-
-    entries.append((anthropic_matches, _AnthropicAdapter, anthropic_factory))
-    entries.append((openai_matches, _OpenAIAdapter, openai_factory))
+    for route in PROVIDER_ROUTES:
+        r = route  # capture for closure
+        adapter_cls = _ADAPTER_MAP.get(r.adapter, _OpenAICompatAdapter)
+        entries.append((
+            lambda m, pfx=r.prefix: m.lower().startswith(pfx.lower()),
+            adapter_cls,
+            lambda r=r: None,  # unused in new path
+        ))
     return entries
 
 
@@ -602,26 +691,41 @@ def register_provider(
     """Register a custom provider so ``debugai.completion()`` can route to it.
 
         debugai.register_provider(
-            matches=lambda m: m.startswith("mistral"),
-            adapter=MyMistralAdapter,
-            client_factory=lambda: MistralClient(),
+            matches=lambda m: m.startswith("my-model"),
+            adapter=MyAdapter,
+            client_factory=lambda: MyClient(...),
         )
     """
     _PROVIDER_REGISTRY.insert(0, (matches, adapter, client_factory))
 
 
-def _route_provider(model: str):
-    """Return (adapter_class, real_client) for a model name."""
+def _route_provider(model: str, config: "DebugAIConfig | None" = None):
+    """Return (adapter_class, client) for a model name.
+
+    Checks, in order:
+    1. User-registered entries via register_provider()
+    2. The built-in PROVIDER_ROUTES table in providers.py
+    """
+    # 1. User-registered overrides.
     for matches, adapter, factory in _PROVIDER_REGISTRY:
         if matches(model):
             return adapter, factory()
-    for matches, adapter, factory in _default_providers():
-        if matches(model):
-            return adapter, factory()
-    raise ValueError(
-        f"No provider registered for model {model!r}. "
-        "Register one with debugai.register_provider()."
-    )
+
+    # 2. Built-in routing table.
+    from debugai.providers import make_client, route_for
+    route = route_for(model)
+    if route is None:
+        raise ValueError(
+            f"No provider registered for model {model!r}. "
+            "Supported prefixes: gpt-, claude-, gemini-, groq/, together/, "
+            "mistral/, openrouter/, azure/, cohere/, ollama/, qwen*, llama*, "
+            "phi*, deepseek*, gemma*, mixtral*. "
+            "Or register your own: debugai.register_provider(...)."
+        )
+    from debugai.providers import _ADAPTER_MAP
+    adapter_cls = _ADAPTER_MAP.get(route.adapter, _OpenAICompatAdapter)
+    client = make_client(route, config or DebugAIConfig())
+    return adapter_cls, client
 
 
 # Module-level default config — used by completion() when no config is passed.
@@ -643,29 +747,36 @@ def completion(model: str, messages: list, *, config: "DebugAIConfig | None" = N
         print(resp.text, resp.cost_usd, resp.latency_ms)
     """
     cfg = config or _default_config or DebugAIConfig()
-    adapter_cls, client = _route_provider(model)
+    adapter_cls, client = _route_provider(model, cfg)
 
     # Check for streaming — delegate to a different path if requested.
     if kwargs.get("stream"):
         return _stream_completion(model, messages, adapter_cls, client, cfg, kwargs)
 
-    captured = adapter_cls.from_request({"model": model, "messages": messages, **kwargs})
+    # Fallback loop: try the primary model, then each fallback on error.
+    _fallbacks = list(cfg.fallbacks or [])
+    _attempted: list[tuple[str, str]] = []  # (model_name, error)
+    _model, _adapter, _client = model, adapter_cls, client
+    while True:
+        try:
+            resp = _call_provider(_model, messages, _adapter, _client, kwargs)
+            break
+        except Exception as e:
+            _attempted.append((_model, str(e)))
+            log.warning("completion: %s failed (%s)", _model, e)
+            if not _fallbacks:
+                raise
+            fallback_model = _fallbacks.pop(0)
+            log.info("completion: trying fallback %s", fallback_model)
+            _adapter, _client = _route_provider(fallback_model, cfg)
+            _model = fallback_model
 
-    start = time.perf_counter()
-    if adapter_cls is _AnthropicAdapter:
-        # Anthropic uses positional `model` + `messages` + `max_tokens` (required).
-        resp = _resolve(client, adapter_cls.create_path)(
-            model=model, messages=messages,
-            max_tokens=kwargs.pop("max_tokens", 1024), **kwargs)
-    else:
-        resp = _resolve(client, adapter_cls.create_path)(
-            model=model, messages=messages, **kwargs)
-    latency_ms = int((time.perf_counter() - start) * 1000)
-
-    text, usage_dict = adapter_cls.from_response(resp)
+    latency_ms = int(resp._latency_ms)  # set by _call_provider
+    text, usage_dict = _adapter.from_response(resp._raw)
     from debugai.tracing import estimate_cost
     usage = _UsageInfo(usage_dict.get("prompt", 0), usage_dict.get("completion", 0))
-    cost = estimate_cost(model, usage.prompt, usage.completion)
+    cost = estimate_cost(_model, usage.prompt, usage.completion, cfg.model_prices)
+    captured = _adapter.from_request({"model": _model, "messages": messages, **kwargs})
 
     # Background observability.
     if cfg.enable_diagnosis or cfg.enable_traces:
@@ -677,8 +788,31 @@ def completion(model: str, messages: list, *, config: "DebugAIConfig | None" = N
             session_id=_session.get() or cfg.session_id,
         ))
 
-    return CompletionResponse(text=text, usage=usage, cost_usd=cost,
-                               latency_ms=latency_ms, model=model, raw=resp)
+    result = CompletionResponse(text=text, usage=usage, cost_usd=cost,
+                                 latency_ms=latency_ms, model=_model, raw=resp._raw)
+    if _attempted:
+        result.fallback_attempts = _attempted
+    return result
+
+
+class _RawResp:
+    """Tiny wrapper carrying the raw response + measured latency out of _call_provider."""
+    def __init__(self, raw, latency_ms: float):
+        self._raw = raw
+        self._latency_ms = latency_ms
+
+
+def _call_provider(model: str, messages: list, adapter_cls, client, kwargs: dict) -> "_RawResp":
+    """Single provider call, returning _RawResp(raw_response, latency_ms)."""
+    kw = dict(kwargs)  # don't mutate caller's dict
+    start = time.perf_counter()
+    if adapter_cls is _AnthropicAdapter:
+        raw = _resolve(client, adapter_cls.create_path)(
+            model=model, messages=messages, max_tokens=kw.pop("max_tokens", 1024), **kw)
+    else:
+        raw = _resolve(client, adapter_cls.create_path)(
+            model=model, messages=messages, **kw)
+    return _RawResp(raw, (time.perf_counter() - start) * 1000)
 
 
 def _stream_completion(model, messages, adapter_cls, client, cfg, kwargs):
@@ -697,7 +831,7 @@ async def acompletion(model: str, messages: list, *, config: "DebugAIConfig | No
     """Async variant of ``completion()``. Requires an async provider client."""
     import asyncio
     cfg = config or _default_config or DebugAIConfig()
-    adapter_cls, _ = _route_provider(model)
+    adapter_cls, _ = _route_provider(model, cfg)
 
     # Build an async client.
     if adapter_cls is _AnthropicAdapter:

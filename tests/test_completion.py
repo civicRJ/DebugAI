@@ -97,7 +97,7 @@ def test_config_sample_rate_zero():
 def test_completion_openai_route(monkeypatch):
     """completion() routes gpt-* to OpenAI and returns a CompletionResponse."""
     from debugai import sdk as sdk_mod
-    monkeypatch.setattr(sdk_mod, "_default_providers", lambda: [
+    monkeypatch.setattr(sdk_mod, "_PROVIDER_REGISTRY", [
         (lambda m: m.startswith("gpt"), _OpenAIAdapter, lambda: FakeOAI("hello from gpt"))
     ])
     resp = completion("gpt-4o", [{"role": "user", "content": "hi"}],
@@ -113,7 +113,7 @@ def test_completion_openai_route(monkeypatch):
 
 def test_completion_anthropic_route(monkeypatch):
     from debugai import sdk as sdk_mod
-    monkeypatch.setattr(sdk_mod, "_default_providers", lambda: [
+    monkeypatch.setattr(sdk_mod, "_PROVIDER_REGISTRY", [
         (lambda m: m.startswith("claude"), _AnthropicAdapter, lambda: FakeAnthropic("hello from claude"))
     ])
     resp = completion("claude-haiku-4-5", [{"role": "user", "content": "hi"}],
@@ -126,8 +126,6 @@ def test_register_provider(monkeypatch):
     """register_provider() lets users add custom model routing."""
     from debugai import sdk as sdk_mod
     monkeypatch.setattr(sdk_mod, "_PROVIDER_REGISTRY", [])
-    monkeypatch.setattr(sdk_mod, "_default_providers", lambda: [])
-
     register_provider(
         matches=lambda m: m.startswith("custom-"),
         adapter=_OpenAIAdapter,
@@ -141,7 +139,9 @@ def test_register_provider(monkeypatch):
 def test_completion_unknown_model_raises(monkeypatch):
     from debugai import sdk as sdk_mod
     monkeypatch.setattr(sdk_mod, "_PROVIDER_REGISTRY", [])
-    monkeypatch.setattr(sdk_mod, "_default_providers", lambda: [])
+    # Patch route_for to return None for any model
+    from debugai import providers as pmod
+    monkeypatch.setattr(pmod, "route_for", lambda m: None)
     with pytest.raises(ValueError, match="No provider registered"):
         completion("unknown-xyz", [{"role": "user", "content": "hi"}])
 

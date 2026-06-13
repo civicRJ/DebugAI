@@ -82,3 +82,24 @@ class DebugAIConfig:
     thresholds: Thresholds = field(default_factory=lambda: DEFAULT_THRESHOLDS)
     """Detection thresholds. Per-user adaptive calibration overrides these at
     the server level; SDK callers can override them explicitly here."""
+
+    # ── Provider config ──────────────────────────────────────────────────────
+    ollama_base_url: str = "http://localhost:11434/v1"
+    """Ollama server URL for local models (Qwen, Llama, Phi, DeepSeek…).
+    Overridden by the OLLAMA_BASE_URL env var."""
+
+    model_prices: dict | None = None
+    """Custom per-model pricing overrides: {"my-model": (input_$/1M, output_$/1M)}.
+    Merged with the built-in table; your entries take precedence."""
+
+    # ── LiteLLM-parity features (B1+) ───────────────────────────────────────
+    fallbacks: list = field(default_factory=list)
+    """Model names to try if the primary call fails (rate limit / error / timeout).
+    e.g. fallbacks=['claude-haiku-4-5', 'ollama/qwen2.5']"""
+
+    response_schema: dict | None = None
+    """JSON Schema to validate structured outputs. Violations are surfaced as
+    an instruction_violation in the diagnosis."""
+
+    on_schema_violation: Callable | None = None
+    """Called when a schema violation is detected: fn(output_text, violations_list)."""

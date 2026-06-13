@@ -1,0 +1,89 @@
+{
+  "_comment": "Held-out evaluation set — labeled cases NOT used while tuning the detectors. Used by scripts/benchmark.py to measure generalisation.",
+  "cases": [
+    {
+      "id": "ev-rf-01", "expected": "retrieval_failure",
+      "prompt": "What is the cancellation fee for a flight?",
+      "output": "The cancellation fee is $150 plus a 10% service charge for changes within 24 hours.",
+      "chunks": ["The cafeteria serves lunch from 12pm to 2pm.", "Visitor badges must be returned at the front desk."],
+      "similarity_scores": [0.21, 0.18], "temperature": 0.2
+    },
+    {
+      "id": "ev-rf-02", "expected": "retrieval_failure",
+      "prompt": "How do I reset my account password?",
+      "output": "Go to Settings, click Security, then Reset Password and follow the email link.",
+      "chunks": ["Chocolate chip cookies bake best at 180 degrees.", "Let the dough rest for thirty minutes."],
+      "similarity_scores": [0.14, 0.11], "temperature": 0.1
+    },
+    {
+      "id": "ev-hl-01", "expected": "hallucination",
+      "prompt": "What did the CEO announce about the merger?",
+      "output": "The CEO announced the merger with Vertex Corp will close in March under the Sterling Agreement, creating 5,000 new jobs.",
+      "chunks": ["The company does not comment on merger speculation.", "Quarterly results are published on the investor page."],
+      "similarity_scores": [0.64, 0.6], "temperature": 0.8
+    },
+    {
+      "id": "ev-hl-02", "expected": "hallucination",
+      "prompt": "What are the documented side effects of the medication?",
+      "output": "Documented side effects include Halverson's tremor, a 12% risk of insomnia, and rare cases of the Branton reaction.",
+      "chunks": ["Always consult a licensed physician before use.", "Store the medication below 25 degrees Celsius."],
+      "similarity_scores": [0.61, 0.57], "temperature": 0.75
+    },
+    {
+      "id": "ev-br-01", "expected": "prompt_brittleness",
+      "prompt": "Summarize the support ticket.",
+      "output": "The customer reports the app crashes on startup after the latest update and requests a fix.",
+      "chunks": ["Ticket: the app crashes on startup after the latest update.", "Customer requests a fix as soon as possible."],
+      "similarity_scores": [0.85, 0.82], "temperature": 0.95
+    },
+    {
+      "id": "ev-br-02", "expected": "prompt_brittleness",
+      "prompt": "Rate the priority of this incident.",
+      "output": "The incident involves a database outage affecting checkout, with elevated error rates across the payment service.",
+      "chunks": ["Incident: database outage affecting checkout.", "Payment service shows elevated error rates."],
+      "similarity_scores": [0.83, 0.81], "temperature": 0.9
+    },
+    {
+      "id": "ev-co-01", "expected": "context_overflow",
+      "prompt": "Based on the entire manual, what is the recommended maintenance interval?",
+      "output": "The manual recommends servicing every 10,000 km or twelve months, whichever comes first.",
+      "chunks": ["The maintenance manual documents procedures for the engine, transmission, braking system, electrical wiring, climate control, suspension geometry, tyre rotation schedule, fluid specifications, torque values, diagnostic codes, and a long troubleshooting appendix that repeats for every trim level across hundreds of pages of dense technical prose filling the window."],
+      "similarity_scores": [0.76], "temperature": 0.2, "context_window": 150, "max_tokens": 4096, "latency_ms": 3400
+    },
+    {
+      "id": "ev-eg-01", "expected": "entity_gap",
+      "prompt": "What is the boot space of the Model Q?",
+      "output": "The Model Q has 480 litres of boot space and a 60 litre fuel tank.",
+      "chunks": ["The Model Q is a compact SUV with a 1.5 litre petrol engine.", "The Model Q features a seven inch touchscreen and six airbags."],
+      "similarity_scores": [0.73, 0.70], "temperature": 0.1
+    },
+    {
+      "id": "ev-eg-02", "expected": "entity_gap",
+      "prompt": "What is the clock speed of the Helio chip?",
+      "output": "The Helio chip runs at 2.8 GHz with a 6 core configuration.",
+      "chunks": ["The Helio chip is built on a 4 nanometre process.", "The Helio chip supports LPDDR5 memory and fast charging."],
+      "similarity_scores": [0.72, 0.69], "temperature": 0.15
+    },
+    {
+      "id": "ev-ok-01", "expected": "healthy",
+      "prompt": "What is the warranty period?",
+      "output": "The warranty period is one year from the date of purchase.",
+      "chunks": ["The warranty period is one year from the date of purchase.", "Proof of purchase is required for claims."],
+      "similarity_scores": [0.91, 0.84], "temperature": 0.1
+    },
+    {
+      "id": "ev-ok-02", "expected": "healthy",
+      "prompt": "What are the office hours?",
+      "output": "The office is open from 9am to 6pm on weekdays.",
+      "chunks": ["The office is open from 9am to 6pm Monday to Friday.", "It is closed on public holidays."],
+      "similarity_scores": [0.9, 0.8], "temperature": 0.0
+    },
+    {
+      "id": "ev-ok-03", "expected": "healthy",
+      "prompt": "Where is the company registered?",
+      "output": "The company is registered in Singapore.",
+      "chunks": ["The company is registered in Singapore.", "Its tax identification number is on file."],
+      "similarity_scores": [0.92, 0.79], "temperature": 0.1
+    }
+  ]
+}

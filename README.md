@@ -443,6 +443,30 @@ COOP) are sent on every response. The CSP allows the unpkg CDN + inline/eval
 because the dashboard transforms JSX in-browser; for a strict CSP, pre-compile
 the JSX and drop the Babel/CDN script tags.
 
+## Accuracy benchmark
+
+```bash
+python scripts/benchmark.py     # tests/dataset/failures.json + eval.json
+```
+
+Runs every labeled case through the engine and reports **overall accuracy, a
+confusion matrix, and per-class precision/recall/F1**. Current: **87.5% (28/32)**
+on the seed + held-out eval set. The held-out set honestly surfaces the weak
+spot — `entity_gap` is sometimes misread as `hallucination` when the NLI model
+emits spurious contradiction on spec-style answers. A `test_benchmark.py` guard
+fails CI if combined accuracy drops below 80%.
+
+### Deep-mode variance & Tier-3 NER
+
+- **Measured variance (§7.5 Tier 2):** pass `variance_rerun=<callable>` (and
+  `variance_runs`) to `analyze()` to replace the temperature proxy with a real
+  measure — it re-runs the model N times and scores `1 − mean pairwise
+  similarity` (signal `variance_method` becomes `"measured"`). Opt-in (costs N
+  calls), for async/CI.
+- **Tier-3 NER fallback (§7.1):** when spaCy + regex extract nothing, an LLM can
+  extract entities — opt-in via `DEBUGAI_LLM_NER=1` (+ `OPENAI_API_KEY`), off by
+  default so normal runs make no LLM calls.
+
 ## Tests
 
 ```bash

@@ -13,8 +13,10 @@ look healthy and ``lazy=True``.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
+import os
 import re
 from dataclasses import asdict, dataclass
 
@@ -117,7 +119,37 @@ def _extract_entities(text: str) -> set[str]:
             # spaCy found nothing → fall through to regex so we still get signal.
         except Exception as e:
             log.warning("spaCy NER failed (%s); using regex fallback", e)
-    return {m.group(1).lower() for m in _ENTITY_RE.finditer(text)}
+    regex_ents = {m.group(1).lower() for m in _ENTITY_RE.finditer(text)}
+    if regex_ents:
+        return regex_ents
+    return _llm_entities(text)  # Tier-3 (opt-in): LLM NER when nothing else matched
+
+
+def _llm_entities(text: str) -> set[str]:
+    """Tier-3 NER (§7.1): only when spaCy + regex found nothing AND the user
+    opted in via DEBUGAI_LLM_NER (+ an OpenAI key). Costs an LLM call, so off
+    by default."""
+    if not (os.environ.get("DEBUGAI_LLM_NER") and os.environ.get("OPENAI_API_KEY") and text.strip()):
+        return set()
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(timeout=20.0, max_retries=1)
+        r = client.chat.completions.create(
+            model=os.environ.get("DEBUGAI_JUDGE_MODEL", "gpt-5.5"),
+            response_format={"type": "json_object"},
+            messages=[
+                {"role": "system", "content": "Extract the named entities (people, "
+                 "organisations, products, places, numbers, dates) from the text. "
+                 'Respond as JSON: {"entities": ["..."]}.'},
+                {"role": "user", "content": text[:2000]},
+            ],
+        )
+        data = json.loads(r.choices[0].message.content or "{}")
+        return {str(e).lower() for e in data.get("entities", []) if e}
+    except Exception as e:  # pragma: no cover - network dependent
+        log.warning("LLM NER fallback failed (%s)", e)
+        return set()
 
 
 def compute_entity_coverage(output: str, context: str) -> tuple[float, int, int]:
@@ -194,6 +226,43 @@ def estimate_variance(rec: CaptureRecord) -> tuple[float, str]:
     ):
         base *= 0.5
     return round(base, 4), "estimated"
+
+
+def measure_variance(rerun, system_prompt: str, user_prompt: str,
+                     chunks: list[str], temperature, runs: int = 3) -> float:
+    """Deep-mode variance (§7.5 Tier 2): actually run the model `runs` times and
+    measure output (in)stability as 1 − mean pairwise similarity. Costs N LLM
+    calls, so it's opt-in (async/CI). Returns 0-1; 0.0 if it can't sample."""
+    outs = []
+    for _ in range(max(2, runs)):
+        try:
+            outs.append(rerun(system_prompt, user_prompt, chunks, temperature) or "")
+        except Exception as e:
+            log.warning("variance rerun failed (%s)", e)
+    outs = [o for o in outs if o]
+    if len(outs) < 2:
+        return 0.0
+    embed = models.embedder()
+    if embed is not None:
+        try:
+            import numpy as np
+
+            v = embed.encode(outs, normalize_embeddings=True)
+            sims = np.clip(v @ v.T, 0.0, 1.0)
+            n = len(outs)
+            mean_pair = (sims.sum() - n) / (n * n - n)  # off-diagonal mean cosine
+            return round(max(0.0, min(1.0 - float(mean_pair), 1.0)), 4)
+        except Exception as e:
+            log.warning("variance embedding failed (%s); using token overlap", e)
+    # token fallback: mean pairwise Jaccard dissimilarity
+    toks = [_tokens(o) for o in outs]
+    pairs, total = 0, 0.0
+    for i in range(len(toks)):
+        for j in range(i + 1, len(toks)):
+            u = toks[i] | toks[j]
+            total += (len(toks[i] & toks[j]) / len(u)) if u else 1.0
+            pairs += 1
+    return round(1.0 - (total / pairs if pairs else 1.0), 4)
 
 
 # --------------------------------------------------------------------------- #

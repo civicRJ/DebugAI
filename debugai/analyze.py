@@ -25,7 +25,7 @@ from debugai.diagnosis import diagnose
 from debugai.explainer import explain
 from debugai.judge import INSTRUCTION_VIOLATION, judge_instructions
 from debugai.schema import CaptureRecord
-from debugai.signals import compute_signals
+from debugai.signals import compute_signals, measure_variance
 from debugai.thresholds import DEFAULT_THRESHOLDS, Thresholds
 
 _IV_FIX = (
@@ -79,6 +79,8 @@ def analyze(
     lazy: bool = False,
     judge: bool = False,
     judge_model: str | None = None,
+    variance_rerun: Any = None,
+    variance_runs: int = 3,
 ) -> dict[str, Any]:
     """Diagnose why an LLM output failed and return a structured fix.
 
@@ -102,6 +104,13 @@ def analyze(
     )
 
     signals = compute_signals(rec, lazy=lazy)
+    # Deep mode (§7.5 Tier 2): replace the variance proxy with a measured value
+    # from actually re-running the model, before classifying.
+    if variance_rerun is not None:
+        signals.variance = measure_variance(
+            variance_rerun, rec.system_prompt, rec.user_prompt,
+            rec.retrieved_chunks, rec.temperature, variance_runs)
+        signals.variance_method = "measured"
     diag = diagnose(signals, rec, thresholds)
     result = diag.to_dict()
 

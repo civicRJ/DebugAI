@@ -20,13 +20,11 @@ services:
         value: "1"
       - key: DEBUGAI_NLI_API
         value: "1"
-      # Set HF_TOKEN to your HuggingFace token for higher free-tier rate limits:
-      # https://huggingface.co/settings/tokens  (read-only token is fine)
-      # - key: HF_TOKEN
-      #   sync: false
-      # Add your keys in the Render dashboard under Environment:
-      # OPENAI_API_KEY, ANTHROPIC_API_KEY, DEBUGAI_JUDGE_MODEL
-    disk:
-      name: debugai-data
-      mountPath: /data
-      sizeGB: 1
+      # HF model cache → /tmp so the embedder can write on the free tier
+      # (no persistent disk on free; models re-download on each cold start)
+      - key: HF_HOME
+        value: /tmp/hf-models
+      # Uncomment and set in Render dashboard for optional features:
+      # HF_TOKEN       — higher HF Inference API rate limits (free account fine)
+      # OPENAI_API_KEY — instruction-adherence judge
+      # ANTHROPIC_API_KEY — Claude explainer

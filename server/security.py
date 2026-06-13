@@ -125,8 +125,10 @@ class AuthRateLimitMiddleware(BaseHTTPMiddleware):
     the general DEBUGAI_RATE_LIMIT. Set DEBUGAI_AUTH_RATE_LIMIT=0 to disable."""
 
     def __init__(self, app, per_minute: int | None = None):
-        # Read dynamically so tests can override via conftest env vars.
-        per_minute = per_minute if per_minute is not None else int(os.environ.get("DEBUGAI_AUTH_RATE_LIMIT", "10"))
+        # Default 30/min — aggressive enough to block brute-force, tolerant enough
+        # for developers who test the login/register flow repeatedly.
+        # Override with DEBUGAI_AUTH_RATE_LIMIT env var; set to 0 to disable.
+        per_minute = per_minute if per_minute is not None else int(os.environ.get("DEBUGAI_AUTH_RATE_LIMIT", "30"))
         super().__init__(app)
         self._limit = per_minute
         self._window = 60.0

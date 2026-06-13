@@ -43,4 +43,8 @@ jobs:
         env:
           DEBUGAI_NO_SEED: "1"
           TOKENIZERS_PARALLELISM: "false"
+          # Allow on-demand model download so a cold/partial model cache can't
+          # fail the run with an offline OSError (cache still speeds it up).
+          HF_HUB_OFFLINE: "0"
+          TRANSFORMERS_OFFLINE: "0"
         run: pytest -q

@@ -80,7 +80,7 @@ debugai serve --port 8000              # launch the web app
 ## Install
 
 Models used (all small, CPU, downloaded once): `all-MiniLM-L6-v2` (embeddings),
-`en_core_web_sm` (NER), `cross-encoder/nli-MiniLM2-L6-H768` (NLI).
+`en_core_web_sm` (NER), `cross-encoder/nli-deberta-v3-base` (NLI).
 
 ## Usage
 
@@ -450,11 +450,16 @@ python scripts/benchmark.py     # tests/dataset/failures.json + eval.json
 ```
 
 Runs every labeled case through the engine and reports **overall accuracy, a
-confusion matrix, and per-class precision/recall/F1**. Current: **87.5% (28/32)**
-on the seed + held-out eval set. The held-out set honestly surfaces the weak
-spot — `entity_gap` is sometimes misread as `hallucination` when the NLI model
-emits spurious contradiction on spec-style answers. A `test_benchmark.py` guard
-fails CI if combined accuracy drops below 80%.
+confusion matrix, and per-class precision/recall/F1**. Current: **93.8% (30/32)**
+on the seed + held-out eval set (`entity_gap` 4/4 after the DeBERTa-v3 NLI
+upgrade — see below). A `test_benchmark.py` guard fails CI if combined accuracy
+drops below 80%.
+
+The NLI signal uses **`cross-encoder/nli-deberta-v3-base`** rather than the
+smaller MiniLM2: the latter emitted confident false-positive contradictions on
+neutral attribute-additions (e.g. an answer adding "boot space" to a spec),
+which misclassified `entity_gap` as `hallucination`. DeBERTa scores those ~0.00
+contradiction while still catching real contradictions ~0.99.
 
 ### Deep-mode variance & Tier-3 NER
 

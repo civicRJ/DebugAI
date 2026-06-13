@@ -35,7 +35,7 @@ jobs:
           python - <<'PY'
           from sentence_transformers import SentenceTransformer, CrossEncoder
           SentenceTransformer("all-MiniLM-L6-v2")
-          CrossEncoder("cross-encoder/nli-MiniLM2-L6-H768")
+          CrossEncoder("cross-encoder/nli-deberta-v3-base")
           print("models cached")
           PY
 

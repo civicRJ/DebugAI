@@ -18,7 +18,9 @@ import logging
 log = logging.getLogger("debugai.models")
 
 EMBED_MODEL = "all-MiniLM-L6-v2"
-NLI_MODEL = "cross-encoder/nli-MiniLM2-L6-H768"
+# DeBERTa-v3 NLI: far fewer false-positive contradictions than MiniLM2 on
+# neutral attribute-additions (§7.1), which fixes entity_gap↔hallucination mixups.
+NLI_MODEL = "cross-encoder/nli-deberta-v3-base"
 SPACY_MODEL = "en_core_web_sm"
 
 

@@ -3,6 +3,7 @@ torch>=2.2
 sentence-transformers>=2.7
 spacy>=3.7
 transformers>=4.40
+sentencepiece>=0.2   # DeBERTa-v3 NLI tokenizer (fast tokenizer fallback)
 
 # Layer 3 explainer + instruction-adherence judge
 anthropic>=0.40

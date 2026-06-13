@@ -31,7 +31,7 @@ RUN pip install -r requirements.txt && python -m spacy download en_core_web_sm
 RUN HF_HUB_OFFLINE=0 TRANSFORMERS_OFFLINE=0 python - <<'PY'
 from sentence_transformers import SentenceTransformer, CrossEncoder
 SentenceTransformer("all-MiniLM-L6-v2")
-CrossEncoder("cross-encoder/nli-MiniLM2-L6-H768")
+CrossEncoder("cross-encoder/nli-deberta-v3-base")
 print("models baked")
 PY
 

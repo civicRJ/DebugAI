@@ -68,7 +68,7 @@ npm install && npm run build     # → server/static/dist/*.js
 
 ### CLI
 
-Installs a `debugai` console command (`pip install -e .`):
+Installs a `debugai` console command (`pip install debugerai` or `pip install -e .` for local dev):
 
 ```bash
 debugai analyze --prompt "..." --output "..." --chunk "..." --score 0.41

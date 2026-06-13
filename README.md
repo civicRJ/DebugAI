@@ -295,6 +295,28 @@ API:
 per-signal anomaly status vs thresholds, normalized confidence bars), so the
 frontend stays a thin renderer.
 
+## Instruction-adherence judge (behavioural failures)
+
+Some failures aren't about retrieval or hallucination — e.g. a Socratic tutor
+that **reveals the answer in the first turn** or **re-asks the same guiding
+question**. These violate the *system prompt's own rules*, which the grounding
+signals can't see. `debugai/judge.py` adds an **LLM-as-judge** that scores an
+output against its system-prompt rules and reports the violations as an
+`instruction_violation` diagnosis.
+
+```python
+analyze(prompt, output, system_prompt=tutor_rules, judge=True)
+```
+
+- **Judge model:** OpenAI by default (`DEBUGAI_JUDGE_MODEL`, default `gpt-5.5`)
+  via `OPENAI_API_KEY`; falls back to a deterministic heuristic (question count,
+  reveal-too-much, paraphrase-of-student) when no key is set, so it runs offline.
+- **`SocraticTutorAgent`** handles `instruction_violation`: it rewrites the
+  system prompt to enforce the broken rules, regenerates the response, and
+  **re-judges** to confirm the fix — the corrected reply is shown in the
+  dashboard. (Server runs the judge automatically whenever a system prompt is
+  supplied.)
+
 ## Fix Agent Framework (Phase 2, §8)
 
 `debugai/agents/` implements the universal **diagnose → generate-fix →

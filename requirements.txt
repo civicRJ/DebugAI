@@ -4,8 +4,9 @@ sentence-transformers>=2.7
 spacy>=3.7
 transformers>=4.40
 
-# Layer 3 explainer
+# Layer 3 explainer + instruction-adherence judge
 anthropic>=0.40
+openai>=1.40
 
 # Numerics
 numpy>=1.26

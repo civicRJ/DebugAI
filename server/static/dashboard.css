@@ -121,7 +121,7 @@ html, body {
 .debug-result__label { display: flex; align-items: center; gap: var(--space-3); font-size: var(--text-sm);
   color: var(--ok-bright); font-weight: var(--weight-semibold); margin-bottom: var(--space-3); }
 .debug-result__label .filter-btn { margin-left: auto; }
-.debug-result .diag-grid { grid-template-columns: 1fr; }
+.debug-result .diag-grid { grid-template-columns: minmax(0, 600px); }
 
 /* Fix-agent report panel */
 .fix { margin-top: 8px; background: var(--bg-sunken); border: 1px solid var(--border-default);
@@ -145,6 +145,9 @@ html, body {
   background: var(--bg-raised); border: 1px solid var(--border-faint); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); }
 .fix__verify .arr { color: var(--text-tertiary); }
 .fix__notes { font-size: var(--text-xs); color: var(--text-tertiary); line-height: 1.5; }
+.fix__after { background: var(--ok-muted); border: 1px solid var(--ok-base); border-radius: var(--radius-sm); padding: var(--space-3); }
+.fix__after-label { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--ok-bright); margin-bottom: var(--space-2); }
+.fix__after-body { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.55; white-space: pre-wrap; }
 
 /* Diagnosis grid */
 .diag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); gap: var(--space-5); align-items: start; }

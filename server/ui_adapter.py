@@ -28,6 +28,7 @@ TITLES = {
     "entity_gap": "Entity gap",
     "hallucination": "Hallucination",
     "prompt_brittleness": "Prompt brittleness",
+    "instruction_violation": "Instruction / pedagogy violation",
     "healthy": "Healthy",
 }
 

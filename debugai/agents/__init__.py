@@ -5,7 +5,7 @@ from __future__ import annotations
 from debugai.agents.base import FixAgent
 from debugai.agents.builtin import (
     ConstraintAgent, ContextOptimizerAgent, DocumentPatchAgent,
-    KnowledgeBaseAgent, PromptRuleAgent,
+    KnowledgeBaseAgent, PromptRuleAgent, SocraticTutorAgent,
 )
 from debugai.agents.registry import FixAgentRegistry
 from debugai.agents.types import (
@@ -38,6 +38,6 @@ __all__ = [
     "FixAgent", "FixAgentRegistry", "DEFAULT_REGISTRY", "propose_fix",
     "FixCandidate", "FixReport", "TestCase", "TestResult",
     "PromptRuleAgent", "KnowledgeBaseAgent", "ConstraintAgent",
-    "ContextOptimizerAgent", "DocumentPatchAgent",
+    "ContextOptimizerAgent", "DocumentPatchAgent", "SocraticTutorAgent",
     "VERIFIED", "MITIGATED", "FAILED", "PENDING_RERUN", "ESCALATED",
 ]

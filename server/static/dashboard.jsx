@@ -159,6 +159,12 @@
             <b>{afterLabel}</b> · {report.reverified_cleared ? "cleared" : "still detected"}
           </div>
         )}
+        {report.after_output && (
+          <div className="fix__after">
+            <div className="fix__after-label">Corrected response (regenerated with the fix)</div>
+            <div className="fix__after-body">{report.after_output}</div>
+          </div>
+        )}
         {c.notes && <div className="fix__notes">▸ {c.notes}</div>}
       </div>
     );

@@ -9,10 +9,13 @@ loop in ``base.FixAgent.run`` verifies every fix deterministically.
 from __future__ import annotations
 
 from debugai.agents.base import FixAgent
-from debugai.agents.types import FixCandidate, TestCase
+from debugai.agents.types import (
+    FAILED, PENDING_RERUN, VERIFIED, FixCandidate, FixReport, TestCase,
+)
 from debugai.detectors import (
     CONTEXT_OVERFLOW, ENTITY_GAP, HALLUCINATION, PROMPT_BRITTLENESS, RETRIEVAL_FAILURE,
 )
+from debugai.judge import INSTRUCTION_VIOLATION, judge_instructions
 from debugai.schema import CaptureRecord
 
 
@@ -175,10 +178,70 @@ class DocumentPatchAgent(FixAgent):
         return []  # escalated before tests run
 
 
+# --------------------------------------------------------------------------- #
+# 6. Socratic Tutor Agent — instruction_violation (behavioural / pedagogy)
+# --------------------------------------------------------------------------- #
+class SocraticTutorAgent(FixAgent):
+    name = "Socratic Tutor Agent"
+    handles = INSTRUCTION_VIOLATION
+
+    RULES = (
+        "Adhere strictly to the Socratic method on every turn:\n"
+        "- Reveal at most one small hint per turn. Never give the full solution or "
+        "a complete explanation before the student has reasoned through it; keep "
+        "the answer hidden until they reach it themselves.\n"
+        "- Ask exactly ONE leading question per turn, and it must advance the "
+        "dialogue — never restate, rephrase, or re-ask a question you (or the "
+        "student) already posed.\n"
+        "- Do not open by paraphrasing the student's message.\n"
+        "- Keep the turn short (2-4 sentences); offer the next small step only."
+    )
+
+    def generate_fix(self, diagnosis, record):
+        ev = ((diagnosis.get("primary") or {}).get("evidence") or {})
+        viols = ev.get("violations") or []
+        names = "; ".join(v.get("rule", "") for v in viols[:4]) or "Socratic-method rules"
+        return FixCandidate(
+            agent=self.name, failure=self.handles,
+            strategy="Rewrite the system prompt to enforce the violated Socratic rules.",
+            rationale=f"The response broke pedagogy rules ({names}); tighten the "
+                      "system prompt so the tutor guides instead of answering.",
+            system_prompt_additions=self.RULES,
+        )
+
+    def build_test_cases(self, diagnosis, record):
+        return []  # verified by re-judging (below), not by must_contain checks
+
+    def run(self, diagnosis, record, rerun=None):
+        """Judge-based verify loop: rewrite prompt → regenerate → re-judge."""
+        candidate = self.generate_fix(diagnosis, record)
+        before = (diagnosis.get("primary") or {}).get("confidence")
+        report = FixReport(agent=self.name, failure=self.handles, verdict=PENDING_RERUN,
+                           candidate=candidate, diff=self._diff(candidate, record),
+                           before_confidence=before)
+        if rerun is None:
+            return report
+        applied = self._apply(candidate, record)
+        new_output = rerun(applied.system_prompt, record.user_prompt,
+                           applied.chunks, applied.temperature) or ""
+        jd = judge_instructions(applied.system_prompt, record.user_prompt, new_output)
+        report.reverified = True
+        report.after_output = new_output
+        report.reverified_cleared = jd.healthy
+        report.after_diagnosis = {
+            "healthy": jd.healthy,
+            "primary": None if jd.healthy else {
+                "failure": INSTRUCTION_VIOLATION, "confidence": jd.confidence},
+        }
+        report.verdict = VERIFIED if jd.healthy else FAILED
+        return report
+
+
 BUILTIN_AGENTS = [
     PromptRuleAgent,
     KnowledgeBaseAgent,
     ConstraintAgent,
     ContextOptimizerAgent,
     DocumentPatchAgent,
+    SocraticTutorAgent,
 ]

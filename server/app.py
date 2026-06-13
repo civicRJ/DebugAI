@@ -272,6 +272,7 @@ def _run(req: AnalyzeRequest, owner: str) -> dict:
         model_name=req.model_name,
         explain_with_llm=req.explain_with_llm,
         thresholds=tstore.current(),
+        judge=bool((req.system_prompt or "").strip()),
     )
     tstore.record(diagnosis["signals"], diagnosis["healthy"])
     rec = store.add(_record(req.model_dump(), diagnosis, owner))
@@ -434,10 +435,31 @@ def _claude_rerun(model: str = "claude-haiku-4-5-20251001"):
     return rerun
 
 
+def _openai_rerun(model: str | None = None):
+    model = model or os.environ.get("DEBUGAI_JUDGE_MODEL", "gpt-5.5")
+    from openai import OpenAI
+
+    client = OpenAI()
+
+    def rerun(system_prompt, user_prompt, chunks, temperature):
+        ctx = "\n\n".join(f"[chunk {i}] {c}" for i, c in enumerate(chunks))
+        content = (f"Context:\n{ctx}\n\n" if ctx else "") + f"Student: {user_prompt}"
+        msg = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": system_prompt or "Answer the question."},
+                      {"role": "user", "content": content}],
+        )
+        return msg.choices[0].message.content or ""
+
+    return rerun
+
+
 def _rerun_for(simulate: bool):
-    """Pick a model to re-run with: live Claude if keyed, else a labeled stub."""
+    """Pick a model to re-run with: a live model if keyed, else a labeled stub."""
     if os.environ.get("ANTHROPIC_API_KEY"):
         return _claude_rerun(), "live"
+    if os.environ.get("OPENAI_API_KEY"):
+        return _openai_rerun(), "live"
     if simulate:
         return _grounded_stub, "simulated"
     return None, "proposed"
@@ -510,6 +532,7 @@ def api_playground(req: DebugRequest, user: dict = Depends(require_user)):
             max_tokens=req.max_tokens, context_window=req.context_window,
             model_name=req.model_name, explain_with_llm=req.explain_with_llm,
             thresholds=tstore_for(user["id"]).current(),
+            judge=bool((req.system_prompt or "").strip()),
         )
     except Exception:
         log.exception("playground analyze failed")

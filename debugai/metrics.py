@@ -21,18 +21,25 @@ class _ModelStats:
     total_tokens: int = 0
     cost_usd: float = 0.0
     failures: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
     _latencies: list[float] = field(default_factory=list)
 
     def record(self, prompt: int, completion: int, cost: float,
-               latency_ms: float, failed: bool) -> None:
+               latency_ms: float, failed: bool, from_cache: bool = False) -> None:
         self.requests += 1
         self.prompt_tokens += prompt
         self.completion_tokens += completion
         self.total_tokens += prompt + completion
         self.cost_usd = round(self.cost_usd + cost, 8)
-        self._latencies.append(latency_ms)
+        if not from_cache:
+            self._latencies.append(latency_ms)
         if failed:
             self.failures += 1
+        if from_cache:
+            self.cache_hits += 1
+        else:
+            self.cache_misses += 1
 
     def _pct(self, p: float) -> float:
         if not self._latencies:
@@ -49,6 +56,8 @@ class _ModelStats:
             "total_tokens": self.total_tokens,
             "cost_usd": round(self.cost_usd, 6),
             "failures": self.failures,
+            "cache_hits": self.cache_hits,
+            "cache_misses": self.cache_misses,
             "latency_p50_ms": self._pct(0.50),
             "latency_p95_ms": self._pct(0.95),
         }
@@ -65,14 +74,15 @@ class MetricsLedger:
 
     # ── Recording (called by background worker) ─────────────────────────────
     def record(self, model: str, prompt_tokens: int, completion_tokens: int,
-               cost_usd: float, latency_ms: float, failed: bool) -> None:
+               cost_usd: float, latency_ms: float, failed: bool,
+               from_cache: bool = False) -> None:
         with self._lock:
             if model not in self._models:
                 self._models[model] = _ModelStats()
             self._models[model].record(prompt_tokens, completion_tokens,
-                                        cost_usd, latency_ms, failed)
+                                        cost_usd, latency_ms, failed, from_cache)
             self._global.record(prompt_tokens, completion_tokens,
-                                cost_usd, latency_ms, failed)
+                                cost_usd, latency_ms, failed, from_cache)
 
     # ── Read properties (safe from any thread) ──────────────────────────────
     @property

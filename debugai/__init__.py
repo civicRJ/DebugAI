@@ -20,6 +20,7 @@ from debugai.sdk import (
     wrap_llm, awrap_llm, retrieval_context, session, http_trace_sink,
     completion, acompletion, CompletionResponse,
     register_provider, register_adapter, set_default_config,
+    compare, ComparisonResult, BudgetExceededError,
     _GenericOpenAICompatAdapter,
 )
 from debugai.tracing import Trace, Span, Tracer, Score
@@ -43,5 +44,7 @@ __all__ = [
     "http_trace_sink",
     # Adapters
     "_GenericOpenAICompatAdapter",
+    # Compare + budget
+    "compare", "ComparisonResult", "BudgetExceededError",
 ]
 __version__ = "0.2.0"

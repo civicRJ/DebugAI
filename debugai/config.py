@@ -103,3 +103,32 @@ class DebugAIConfig:
 
     on_schema_violation: Callable | None = None
     """Called when a schema violation is detected: fn(output_text, violations_list)."""
+
+    # ── B4: Budget manager ───────────────────────────────────────────────────
+    budget_usd: float | None = None
+    """Soft spend cap across the MetricsLedger. Raises BudgetExceededError (or calls
+    on_budget_exceeded) before each call once this threshold is crossed."""
+
+    on_budget_exceeded: Callable | None = None
+    """Called instead of raising when the budget is exhausted: fn(spent_usd).
+    If set, the call is NOT made and this callback fires instead."""
+
+    # ── B5: Request caching ──────────────────────────────────────────────────
+    cache_ttl_seconds: int | None = None
+    """Cache identical (model, messages) calls for this many seconds.
+    Cache hits skip the provider call and return a CompletionResponse(from_cache=True)."""
+
+    # ── B6: Retry tracing ────────────────────────────────────────────────────
+    max_retries: int = 2
+    """Retry attempts on rate-limit (429) or transient server errors (500/502/503).
+    Each attempt is recorded in CompletionResponse.retry_count and trace metadata."""
+
+    retry_backoff_seconds: float = 1.0
+    """Base back-off between retries (doubled each attempt)."""
+
+    # ── B8: Latency SLA ──────────────────────────────────────────────────────
+    latency_sla_ms: float | None = None
+    """Alert when a request exceeds this latency threshold."""
+
+    on_sla_breach: Callable | None = None
+    """Called when latency_sla_ms is breached: fn({"model", "latency_ms", "threshold_ms"})."""

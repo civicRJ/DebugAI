@@ -28,7 +28,10 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+import hashlib
 import json as _json_mod
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from debugai.analyze import analyze
 from debugai.config import DebugAIConfig
@@ -144,6 +147,17 @@ class _OpenAIAdapter:
             }
         return text, usage
 
+    @staticmethod
+    def extract_tool_calls(resp: Any) -> list[dict]:
+        """B3 — extract function/tool calls from the response."""
+        try:
+            calls = resp.choices[0].message.tool_calls or []
+            return [{"name": tc.function.name,
+                     "input": tc.function.arguments,
+                     "id": getattr(tc, "id", "")} for tc in calls]
+        except Exception:
+            return []
+
 
 class _AnthropicAdapter:
     create_path = ("messages", "create")
@@ -184,6 +198,15 @@ class _AnthropicAdapter:
             out = getattr(u, "output_tokens", 0)
             usage = {"prompt": inp, "completion": out, "total": inp + out}
         return text, usage
+
+    @staticmethod
+    def extract_tool_calls(resp: Any) -> list[dict]:
+        """B3 — extract tool_use blocks from an Anthropic response."""
+        try:
+            return [{"name": b.name, "input": b.input, "id": getattr(b, "id", "")}
+                    for b in resp.content if getattr(b, "type", "") == "tool_use"]
+        except Exception:
+            return []
 
 
 class _OpenAICompatAdapter(_OpenAIAdapter):
@@ -270,6 +293,114 @@ def _detect_adapter(client: Any):
     )
 
 
+# --------------------------------------------------------------------------- #
+# B4 – Budget manager
+# --------------------------------------------------------------------------- #
+class BudgetExceededError(Exception):
+    """Raised when a completion() call would exceed DebugAIConfig.budget_usd."""
+
+
+# --------------------------------------------------------------------------- #
+# B5 – TTL response cache
+# --------------------------------------------------------------------------- #
+class _TTLCache:
+    """Thread-safe in-memory cache with per-entry TTL."""
+
+    def __init__(self) -> None:
+        self._store: dict[str, tuple[Any, float]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: str) -> Any:
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
+            value, exp = entry
+            if time.time() < exp:
+                return value
+            del self._store[key]
+            return None
+
+    def set(self, key: str, value: Any, ttl: float) -> None:
+        with self._lock:
+            self._store[key] = (value, time.time() + ttl)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
+
+
+_response_cache = _TTLCache()
+
+
+def _cache_key(model: str, messages: list) -> str:
+    payload = model + _json_mod.dumps(messages, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+# --------------------------------------------------------------------------- #
+# B9 – Model comparison
+# --------------------------------------------------------------------------- #
+@dataclass
+class ComparisonResult:
+    """One model's result from ``debugai.compare()``."""
+    model: str
+    text: str
+    cost_usd: float
+    latency_ms: int
+    diagnosis: dict | None = None
+    error: str | None = None
+
+
+def compare(
+    prompt: str,
+    models: list[str],
+    *,
+    system: str = "",
+    config: "DebugAIConfig | None" = None,
+    max_workers: int = 4,
+    **kwargs,
+) -> list[ComparisonResult]:
+    """Run the same prompt against multiple models in parallel and compare results.
+
+        results = debugai.compare(
+            prompt="Explain refraction.",
+            models=["gpt-4o", "claude-haiku-4-5", "ollama/qwen2.5"],
+        )
+        for r in results:
+            print(r.model, r.latency_ms, r.cost_usd, r.text[:80])
+    """
+    messages: list[dict] = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    def _one(model: str) -> ComparisonResult:
+        try:
+            resp = completion(model, messages, config=config, **kwargs)
+            return ComparisonResult(
+                model=model, text=resp.text, cost_usd=resp.cost_usd,
+                latency_ms=resp.latency_ms,
+            )
+        except Exception as e:
+            return ComparisonResult(model=model, text="", cost_usd=0.0,
+                                    latency_ms=0, error=str(e))
+
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(models))) as ex:
+        futures = {ex.submit(_one, m): m for m in models}
+        results = [f.result() for f in as_completed(futures)]
+
+    results.sort(key=lambda r: (r.error is not None, r.latency_ms))
+    return results
+
+
+def _prompt_hash(system_prompt: str) -> str:
+    """B10 — stable 12-char SHA256 prefix of the system prompt."""
+    if not system_prompt:
+        return ""
+    return hashlib.sha256(system_prompt.encode()).hexdigest()[:12]
+
+
 def _validate_json_schema(output: str, schema: dict) -> list[str]:
     """Validate a JSON response against a JSON Schema dict. Returns a list of
     violation strings, or an empty list if valid. Stdlib only (no jsonschema pkg)."""
@@ -320,6 +451,10 @@ class _Job:
     retrieval: dict | None
     context_window: int | None
     session_id: str | None = None
+    tool_calls: list = field(default_factory=list)   # B3
+    correlation_id: str | None = None                 # B7
+    retry_count: int = 0                              # B6
+    from_cache: bool = False                          # B5
 
 
 class _Diagnoser:
@@ -437,6 +572,7 @@ class _Diagnoser:
                 cost_usd=cost,
                 latency_ms=float(job.latency_ms or 0),
                 failed=failed,
+                from_cache=job.from_cache,
             )
             if cfg.on_metrics is not None:
                 cfg.on_metrics({
@@ -447,6 +583,17 @@ class _Diagnoser:
                     "latency_ms": job.latency_ms,
                     "failed": failed,
                 })
+
+        # B8 — latency SLA alert.
+        if cfg.latency_sla_ms and job.latency_ms > cfg.latency_sla_ms:
+            if cfg.on_sla_breach:
+                try:
+                    cfg.on_sla_breach({"model": job.captured.model_name,
+                                       "latency_ms": job.latency_ms,
+                                       "threshold_ms": cfg.latency_sla_ms,
+                                       "correlation_id": job.correlation_id})
+                except Exception as e:
+                    log.warning("on_sla_breach callback failed: %s", e)
 
         # B2: JSON schema validation (runs regardless of other diagnosis).
         if cfg.response_schema and job.output:
@@ -461,13 +608,23 @@ class _Diagnoser:
     def _build_trace(self, job: _Job, result: dict) -> Trace:
         """Turn a captured call + its diagnosis into an observability trace."""
         t = Trace(name="llm.call", session_id=job.session_id, model=job.captured.model_name)
+        # B7 — correlation ID.
+        if job.correlation_id:
+            t.metadata["correlation_id"] = job.correlation_id
+        # B6 — retry count.
+        if job.retry_count:
+            t.metadata["retry_count"] = job.retry_count
+        # B10 — prompt version hash.
+        if job.captured.system_prompt:
+            t.metadata["prompt_hash"] = _prompt_hash(job.captured.system_prompt)
+
         r = job.retrieval or {}
         if r.get("retrieved_chunks"):
             sp = Span(name="retrieval", kind="retrieval")
             sp.input = r.get("retrieval_query")
             sp.output = r.get("retrieved_chunks")
             sp.metadata = {"similarity_scores": r.get("similarity_scores")}
-            sp.end_ms = sp.start_ms  # retrieval timing not captured by the LLM wrapper
+            sp.end_ms = sp.start_ms
             t.add_span(sp)
         gen = Span(name="generation", kind="generation", model=job.captured.model_name)
         gen.input = job.captured.user_prompt
@@ -476,6 +633,13 @@ class _Diagnoser:
                       completion=(job.usage or {}).get("completion", 0))
         gen.end_ms = gen.start_ms + float(job.latency_ms or 0)
         t.add_span(gen)
+        # B3 — tool call child spans.
+        for tc in (job.tool_calls or []):
+            tool_span = Span(name=tc.get("name", "tool"), kind="tool")
+            tool_span.input = tc.get("input")
+            tool_span.metadata = {"id": tc.get("id", "")}
+            tool_span.end_ms = tool_span.start_ms
+            t.add_span(tool_span)
         t.diagnosis = result
         t.scores = scores_from_diagnosis(result)
         t.status = status_from_diagnosis(result)
@@ -592,6 +756,7 @@ def wrap_llm(
         sampled = _rate >= 1.0 or (counter["n"] * _rate) % 1 < _rate
         if sampled:
             output, usage = adapter.from_response(resp)
+            tool_calls = (getattr(adapter, "extract_tool_calls", lambda r: [])(resp))
             retrieval = _retrieval.get()
             if chunks is not None:
                 retrieval = {
@@ -604,6 +769,8 @@ def wrap_llm(
                 latency_ms=latency_ms, retrieval=retrieval,
                 context_window=context_window,
                 session_id=_session.get() or effective.session_id,
+                tool_calls=tool_calls,
+                correlation_id=uuid.uuid4().hex[:16],
             ))
         return resp
 
@@ -652,7 +819,9 @@ class CompletionResponse:
         self.model = model
         self.raw = raw
         self.fallback_attempts: list[tuple[str, str]] = []
-        """List of (model, error) pairs for any fallback attempts before success."""
+        self.correlation_id: str | None = None   # B7
+        self.from_cache: bool = False            # B5
+        self.retry_count: int = 0               # B6
 
     def __repr__(self):
         return (f"CompletionResponse(model={self.model!r}, "
@@ -747,6 +916,29 @@ def completion(model: str, messages: list, *, config: "DebugAIConfig | None" = N
         print(resp.text, resp.cost_usd, resp.latency_ms)
     """
     cfg = config or _default_config or DebugAIConfig()
+
+    # B4 — budget check BEFORE the call.
+    if cfg.budget_usd is not None and _global_metrics.cost_usd >= cfg.budget_usd:
+        if cfg.on_budget_exceeded:
+            cfg.on_budget_exceeded(_global_metrics.cost_usd)
+            # If callback didn't raise, we raise for safety.
+        raise BudgetExceededError(
+            f"Budget ${cfg.budget_usd:.4f} exceeded "
+            f"(spent ${_global_metrics.cost_usd:.4f})")
+
+    # B7 — correlation ID (unique per completion() call, threads through fallbacks).
+    correlation_id = uuid.uuid4().hex[:16]
+
+    # B5 — cache lookup.
+    cache_key = _cache_key(model, messages) if cfg.cache_ttl_seconds else None
+    if cache_key:
+        cached = _response_cache.get(cache_key)
+        if cached is not None:
+            log.debug("cache hit for model=%s", model)
+            cached.correlation_id = correlation_id
+            cached.from_cache = True
+            return cached
+
     adapter_cls, client = _route_provider(model, cfg)
 
     # Check for streaming — delegate to a different path if requested.
@@ -759,7 +951,9 @@ def completion(model: str, messages: list, *, config: "DebugAIConfig | None" = N
     _model, _adapter, _client = model, adapter_cls, client
     while True:
         try:
-            resp = _call_provider(_model, messages, _adapter, _client, kwargs)
+            resp = _call_provider(_model, messages, _adapter, _client, kwargs,
+                                   max_retries=cfg.max_retries,
+                                   backoff=cfg.retry_backoff_seconds)
             break
         except Exception as e:
             _attempted.append((_model, str(e)))
@@ -771,8 +965,11 @@ def completion(model: str, messages: list, *, config: "DebugAIConfig | None" = N
             _adapter, _client = _route_provider(fallback_model, cfg)
             _model = fallback_model
 
-    latency_ms = int(resp._latency_ms)  # set by _call_provider
+    latency_ms = int(resp._latency_ms)
+    retry_count = getattr(resp, "_retry_count", 0)
     text, usage_dict = _adapter.from_response(resp._raw)
+    # B3 — extract tool calls for the trace.
+    tool_calls = (getattr(_adapter, "extract_tool_calls", lambda r: [])(resp._raw))
     from debugai.tracing import estimate_cost
     usage = _UsageInfo(usage_dict.get("prompt", 0), usage_dict.get("completion", 0))
     cost = estimate_cost(_model, usage.prompt, usage.completion, cfg.model_prices)
@@ -786,33 +983,71 @@ def completion(model: str, messages: list, *, config: "DebugAIConfig | None" = N
             latency_ms=latency_ms, retrieval=_retrieval.get(),
             context_window=None,
             session_id=_session.get() or cfg.session_id,
+            tool_calls=tool_calls,
+            correlation_id=correlation_id,
+            retry_count=retry_count,
         ))
 
     result = CompletionResponse(text=text, usage=usage, cost_usd=cost,
                                  latency_ms=latency_ms, model=_model, raw=resp._raw)
     if _attempted:
         result.fallback_attempts = _attempted
+    result.correlation_id = correlation_id
+    result.retry_count = retry_count
+
+    # B5 — populate cache.
+    if cache_key:
+        _response_cache.set(cache_key, result, cfg.cache_ttl_seconds)
+
     return result
 
 
 class _RawResp:
-    """Tiny wrapper carrying the raw response + measured latency out of _call_provider."""
+    """Carries raw response, latency, and retry count out of _call_provider."""
     def __init__(self, raw, latency_ms: float):
         self._raw = raw
         self._latency_ms = latency_ms
+        self._retry_count: int = 0
 
 
-def _call_provider(model: str, messages: list, adapter_cls, client, kwargs: dict) -> "_RawResp":
-    """Single provider call, returning _RawResp(raw_response, latency_ms)."""
-    kw = dict(kwargs)  # don't mutate caller's dict
-    start = time.perf_counter()
-    if adapter_cls is _AnthropicAdapter:
-        raw = _resolve(client, adapter_cls.create_path)(
-            model=model, messages=messages, max_tokens=kw.pop("max_tokens", 1024), **kw)
-    else:
-        raw = _resolve(client, adapter_cls.create_path)(
-            model=model, messages=messages, **kw)
-    return _RawResp(raw, (time.perf_counter() - start) * 1000)
+def _call_provider(model: str, messages: list, adapter_cls, client, kwargs: dict,
+                   max_retries: int = 2, backoff: float = 1.0) -> "_RawResp":
+    """Single provider call with retry (B6). Returns _RawResp(raw, latency_ms, retry_count)."""
+    import time as _t
+    kw = dict(kwargs)
+
+    _RETRYABLE = (408, 429, 500, 502, 503, 504)
+
+    for attempt in range(max(1, max_retries + 1)):
+        start = _t.perf_counter()
+        try:
+            if adapter_cls is _AnthropicAdapter:
+                kw_a = dict(kw)
+                raw = _resolve(client, adapter_cls.create_path)(
+                    model=model, messages=messages,
+                    max_tokens=kw_a.pop("max_tokens", 1024), **kw_a)
+            else:
+                raw = _resolve(client, adapter_cls.create_path)(
+                    model=model, messages=messages, **kw)
+            latency = (_t.perf_counter() - start) * 1000
+            resp = _RawResp(raw, latency)
+            resp._retry_count = attempt
+            return resp
+        except Exception as e:
+            # Check if retryable.
+            status = getattr(e, "status_code", getattr(e, "status", None))
+            retry_after = None
+            try:
+                retry_after = float(e.response.headers.get("Retry-After", 0))
+            except Exception:
+                pass
+            if status in _RETRYABLE and attempt < max_retries:
+                wait = retry_after or (backoff * (2 ** attempt))
+                log.warning("provider %s failed with %s (attempt %d/%d), retrying in %.1fs",
+                            model, status, attempt + 1, max_retries, wait)
+                _t.sleep(wait)
+            else:
+                raise
 
 
 def _stream_completion(model, messages, adapter_cls, client, cfg, kwargs):
@@ -986,6 +1221,7 @@ def awrap_llm(
         sampled = _rate >= 1.0 or (counter["n"] * _rate) % 1 < _rate
         if sampled:
             output, usage = adapter.from_response(resp)
+            tool_calls = (getattr(adapter, "extract_tool_calls", lambda r: [])(resp))
             retrieval = _retrieval.get()
             if chunks is not None:
                 retrieval = {
@@ -998,6 +1234,8 @@ def awrap_llm(
                 latency_ms=latency_ms, retrieval=retrieval,
                 context_window=context_window,
                 session_id=_session.get() or effective.session_id,
+                tool_calls=tool_calls,
+                correlation_id=uuid.uuid4().hex[:16],
             ))
         return resp
 

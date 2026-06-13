@@ -1,0 +1,50 @@
+# syntax=docker/dockerfile:1
+# Lightweight image for free-tier PaaS (Render, Railway, Fly.io).
+# Models are NOT baked in — they download on first use and are cached in the
+# persistent /data volume. DEBUGAI_LITE=1 uses the smaller MiniLM NLI model
+# (~120 MB RAM) instead of DeBERTa (~500 MB RAM) so the app fits in 512 MB.
+#
+# Usage: docker build -f Dockerfile.cloud -t debugai-cloud .
+
+# ── Stage 1: build frontend ─────────────────────────────────────────────────
+FROM node:20-slim AS frontend
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY frontend ./frontend
+COPY server/static ./server/static
+COPY Debug_AI ./Debug_AI
+RUN npm run build
+
+# ── Stage 2: Python runtime ──────────────────────────────────────────────────
+FROM python:3.11-slim AS runtime
+ENV PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    HF_HOME=/data/models \
+    HF_HUB_OFFLINE=0 \
+    TRANSFORMERS_OFFLINE=0 \
+    TOKENIZERS_PARALLELISM=false \
+    DEBUGAI_DATA_DIR=/data \
+    DEBUGAI_NLI_API=1
+
+WORKDIR /app
+
+# CPU-only torch, then remaining deps.
+# No model baking — DEBUGAI_NLI_API=1 calls HF Inference API at runtime (zero RAM).
+# Only embeddings (MiniLM ~80MB) and spaCy NER (~12MB) load locally.
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch
+COPY requirements.txt .
+RUN pip install -r requirements.txt && python -m spacy download en_core_web_sm && \
+    python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2'); print('embedder cached')"
+
+COPY . .
+COPY --from=frontend /app/server/static/dist ./server/static/dist
+COPY --from=frontend /app/server/static/vendor ./server/static/vendor
+
+RUN mkdir -p /data
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=4).status==200 else 1)"
+
+CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]

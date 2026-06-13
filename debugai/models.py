@@ -14,14 +14,31 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 
 log = logging.getLogger("debugai.models")
 
 EMBED_MODEL = "all-MiniLM-L6-v2"
-# DeBERTa-v3 NLI: far fewer false-positive contradictions than MiniLM2 on
-# neutral attribute-additions (§7.1), which fixes entity_gap↔hallucination mixups.
-NLI_MODEL = "cross-encoder/nli-deberta-v3-base"
 SPACY_MODEL = "en_core_web_sm"
+
+# Three NLI modes (set via env var):
+#
+#   default              → cross-encoder/nli-deberta-v3-base  local (~500 MB RAM)
+#                          Most accurate. Best for self-hosted VPS with ≥1 GB RAM.
+#
+#   DEBUGAI_LITE=1       → cross-encoder/nli-MiniLM2-L6-H768  local (~120 MB RAM)
+#                          Fits in free-tier PaaS (512 MB RAM).  Slightly more
+#                          false-positive contradictions but good enough.
+#
+#   DEBUGAI_NLI_API=1    → HuggingFace Inference API           zero local RAM
+#                          Sends (premise, hypothesis) to api-inference.huggingface.co.
+#                          Set HF_TOKEN for higher rate limits (free account works).
+#                          Best choice for Render / Railway free tier.
+_LITE    = bool(os.environ.get("DEBUGAI_LITE"))
+_NLI_API = bool(os.environ.get("DEBUGAI_NLI_API"))
+NLI_MODEL = ("cross-encoder/nli-MiniLM2-L6-H768" if _LITE
+             else "cross-encoder/nli-deberta-v3-base")
+NLI_HF_MODEL_ID = "cross-encoder/nli-deberta-v3-base"  # used by the API path
 
 
 @functools.lru_cache(maxsize=1)
@@ -39,7 +56,13 @@ def embedder():
 
 @functools.lru_cache(maxsize=1)
 def nli_model():
-    """CrossEncoder NLI model. Returns label-ordered logits. None if unavailable."""
+    """CrossEncoder NLI model. Returns label-ordered logits. None if unavailable.
+
+    When DEBUGAI_NLI_API=1 this returns a special sentinel object that tells
+    compute_contradiction() to call the HuggingFace Inference API instead.
+    """
+    if _NLI_API:
+        return _HFNLISentinel()
     try:
         from sentence_transformers import CrossEncoder
 
@@ -48,6 +71,12 @@ def nli_model():
     except Exception as e:  # pragma: no cover - environment dependent
         log.warning("NLI model unavailable (%s); contradiction set to 0.0", e)
         return None
+
+
+class _HFNLISentinel:
+    """Marker returned by nli_model() when DEBUGAI_NLI_API=1.
+    compute_contradiction() detects this and calls the HF Inference API."""
+    is_hf_api = True
 
 
 @functools.lru_cache(maxsize=1)

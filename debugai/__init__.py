@@ -48,3 +48,4 @@ __all__ = [
     "compare", "ComparisonResult", "BudgetExceededError",
 ]
 __version__ = "0.2.0"
+__all__ += ["__version__"]

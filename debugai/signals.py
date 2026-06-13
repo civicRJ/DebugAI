@@ -207,6 +207,10 @@ def compute_contradiction(output: str, chunks: list[str]) -> float:
     if model is None:
         return 0.0  # fallback: no NLI available
 
+    # HuggingFace Inference API path (DEBUGAI_NLI_API=1) — zero local RAM.
+    if getattr(model, "is_hf_api", False):
+        return _hf_api_contradiction(output, chunks)
+
     try:
         import numpy as np
 
@@ -220,6 +224,39 @@ def compute_contradiction(output: str, chunks: list[str]) -> float:
     except Exception as e:
         log.warning("NLI contradiction failed (%s); defaulting to 0.0", e)
         return 0.0
+
+
+def _hf_api_contradiction(output: str, chunks: list[str]) -> float:
+    """Call the HuggingFace Inference API for NLI instead of a local model.
+    Model: cross-encoder/nli-deberta-v3-base on HF (full accuracy, zero RAM).
+    Set HF_TOKEN env var for higher rate limits (free account is fine).
+    """
+    import json as _json
+    import os
+    import urllib.request
+
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    url = f"https://api-inference.huggingface.co/models/{models.NLI_HF_MODEL_ID}"
+    headers: dict = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    max_contradiction = 0.0
+    for chunk in chunks[:4]:  # cap at 4 chunks to stay within free-tier rate limits
+        try:
+            payload = _json.dumps({
+                "inputs": f"{chunk} [SEP] {output}",
+                "options": {"wait_for_model": True},
+            }).encode()
+            req = urllib.request.Request(url, data=payload, headers=headers)
+            resp = _json.loads(urllib.request.urlopen(req, timeout=10).read())
+            # HF returns: [{"label": "CONTRADICTION", "score": 0.9}, ...]
+            for item in resp:
+                if isinstance(item, dict) and item.get("label", "").upper() == "CONTRADICTION":
+                    max_contradiction = max(max_contradiction, float(item.get("score", 0)))
+        except Exception as e:
+            log.debug("HF NLI API call failed (%s); skipping chunk", e)
+    return round(max_contradiction, 4)
 
 
 # --------------------------------------------------------------------------- #

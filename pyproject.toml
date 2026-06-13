@@ -1,36 +1,55 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "debugai"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI observability & debugging — diagnose why LLM outputs fail and get specific fixes."
 readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = ["llm", "observability", "debugging", "rag", "ai", "diagnosis"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Debuggers",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "torch>=2.2",
     "sentence-transformers>=2.7",
     "spacy>=3.7",
     "transformers>=4.40",
+    "sentencepiece>=0.2",
     "anthropic>=0.40",
+    "openai>=1.40",
     "numpy>=1.26",
 ]
 
+[project.urls]
+Homepage = "https://github.com/civicRJ/DebugAI"
+Repository = "https://github.com/civicRJ/DebugAI"
+Issues = "https://github.com/civicRJ/DebugAI/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-server = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+server = ["fastapi>=0.110", "uvicorn[standard]>=0.29", "psycopg2-binary>=2.9", "sqlalchemy>=2.0"]
 
 [project.scripts]
 debugai = "debugai.cli:main"
 
 [tool.setuptools]
-packages = ["debugai"]
+# Include all sub-packages so 'debugai.agents', 'debugai.integrations', etc. are installed.
+packages = ["debugai", "debugai.agents", "debugai.integrations"]
 
 [tool.setuptools.package-data]
 debugai = ["thresholds.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]   # make debugai/ and server/ importable under plain `pytest`
+pythonpath = ["."]
 filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

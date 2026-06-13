@@ -1,0 +1,191 @@
+{
+  "_comment": "Step 0 dataset (Architecture §10). 20 labeled cases exercising all 5 detectors plus healthy baselines. Each case is analyze() kwargs + expected primary failure. similarity_scores model the retriever; temperature drives the variance proxy.",
+  "cases": [
+    {
+      "id": "rag-01-refund",
+      "expected": "retrieval_failure",
+      "prompt": "What is the refund policy for electronics?",
+      "output": "Electronics can be returned within 90 days for a full cash refund, no receipt required.",
+      "chunks": ["Our store hours are 9am to 5pm Monday through Friday.", "The parking lot is behind the main building."],
+      "similarity_scores": [0.42, 0.40],
+      "temperature": 0.2
+    },
+    {
+      "id": "rag-02-shipping",
+      "expected": "retrieval_failure",
+      "prompt": "How long does international shipping take?",
+      "output": "International shipping takes 3 to 5 business days via express courier.",
+      "chunks": ["The company was founded in 1998 in Ohio.", "We have over 200 employees worldwide."],
+      "similarity_scores": [0.31, 0.28],
+      "temperature": 0.1
+    },
+    {
+      "id": "rag-03-warranty",
+      "expected": "retrieval_failure",
+      "prompt": "Does the laptop come with a warranty?",
+      "output": "Yes, the laptop includes a 3-year extended warranty covering all accidental damage.",
+      "chunks": ["Recipes for chocolate cake require flour, sugar, and eggs.", "Bake at 350 degrees for 30 minutes."],
+      "similarity_scores": [0.22, 0.19],
+      "temperature": 0.2
+    },
+    {
+      "id": "rag-04-cancel",
+      "expected": "retrieval_failure",
+      "prompt": "How do I cancel my subscription?",
+      "output": "To cancel, go to Settings and click the cancel button; you will be refunded immediately.",
+      "chunks": ["The weather today is sunny with a high of 75 degrees.", "Traffic on the highway is heavy this morning."],
+      "similarity_scores": [0.18, 0.15],
+      "temperature": 0.1
+    },
+    {
+      "id": "rag-05-hours",
+      "expected": "retrieval_failure",
+      "prompt": "What are the customer support hours?",
+      "output": "Customer support is available 24 hours a day, 7 days a week by phone and chat.",
+      "chunks": ["The mountain trail is 12 miles long.", "Hikers should bring water and sunscreen."],
+      "similarity_scores": [0.25, 0.21],
+      "temperature": 0.2
+    },
+    {
+      "id": "rag-06-payment",
+      "expected": "retrieval_failure",
+      "prompt": "Which payment methods are accepted?",
+      "output": "We accept Visa, Mastercard, PayPal, and cryptocurrency payments at checkout.",
+      "chunks": ["The novel was published in three volumes.", "Critics praised its narrative structure."],
+      "similarity_scores": [0.20, 0.17],
+      "temperature": 0.1
+    },
+    {
+      "id": "hall-01-policy",
+      "expected": "hallucination",
+      "prompt": "What does the return policy say about opened software?",
+      "output": "Opened software can be returned within 45 days for store credit, and Nintendo titles get a special 60-day window under the Galaxy Protection Plan.",
+      "chunks": ["Returns: Most items may be returned within 30 days with a receipt.", "Software and digital downloads follow the standard 30-day return window when unopened."],
+      "similarity_scores": [0.71, 0.68],
+      "temperature": 0.7
+    },
+    {
+      "id": "hall-02-medical",
+      "expected": "hallucination",
+      "prompt": "What is the recommended dosage from the guidelines?",
+      "output": "The guidelines recommend 800mg of Zentravil twice daily, increasing to 1200mg under the Halverson protocol for severe cases.",
+      "chunks": ["The guidelines recommend standard supportive care and hydration.", "Dosage should always be confirmed with a licensed physician."],
+      "similarity_scores": [0.64, 0.61],
+      "temperature": 0.8
+    },
+    {
+      "id": "hall-03-legal",
+      "expected": "hallucination",
+      "prompt": "What does Section 4 of the contract require?",
+      "output": "Section 4 requires arbitration in Delaware under the Marbury Clause and imposes a $50,000 penalty for early termination.",
+      "chunks": ["Section 4 covers confidentiality obligations between the parties.", "The contract is governed by the laws of California."],
+      "similarity_scores": [0.66, 0.59],
+      "temperature": 0.75
+    },
+    {
+      "id": "hall-04-finance",
+      "expected": "hallucination",
+      "prompt": "What were the reported Q3 earnings?",
+      "output": "Q3 earnings were $4.2 billion with a 35% margin, driven by the new Apex product line launched in Singapore.",
+      "chunks": ["Q3 revenue figures will be released next week.", "The company does not comment on unreleased financial results."],
+      "similarity_scores": [0.69, 0.63],
+      "temperature": 0.7
+    },
+    {
+      "id": "brittle-01-summary",
+      "expected": "prompt_brittleness",
+      "prompt": "Summarize the meeting notes.",
+      "output": "The team discussed the roadmap, agreed on the Q4 timeline, and assigned the design review to the platform group.",
+      "chunks": ["Meeting notes: the team discussed the roadmap and agreed on the Q4 timeline.", "Action item: design review assigned to the platform group."],
+      "similarity_scores": [0.83, 0.80],
+      "temperature": 0.9
+    },
+    {
+      "id": "brittle-02-classify",
+      "expected": "prompt_brittleness",
+      "prompt": "Classify the sentiment of this review.",
+      "output": "The review expresses positive sentiment about the battery life and negative sentiment about the screen.",
+      "chunks": ["Review: the battery life is excellent and lasts all day.", "Review: however, the screen is dim and hard to read outdoors."],
+      "similarity_scores": [0.85, 0.82],
+      "temperature": 0.95
+    },
+    {
+      "id": "brittle-03-rubric",
+      "expected": "prompt_brittleness",
+      "prompt": "Rate the severity of this code issue.",
+      "output": "The code issue involves an unhandled null pointer and a missing input validation check in the login handler.",
+      "chunks": ["The login handler does not validate input before processing.", "An unhandled null pointer can occur when the user object is missing."],
+      "similarity_scores": [0.84, 0.81],
+      "temperature": 0.9
+    },
+    {
+      "id": "overflow-01-doc",
+      "expected": "context_overflow",
+      "prompt": "Based on the full report, what is the conclusion on page 180?",
+      "output": "The report concludes that the pilot program was a partial success but recommends further study.",
+      "chunks": ["The quarterly report covers financial performance across all twelve regional divisions, including detailed breakdowns of revenue, operating costs, headcount changes, capital expenditures, and a regional outlook narrative for each of the divisions spanning many pages of dense tabular and prose content."],
+      "similarity_scores": [0.74],
+      "temperature": 0.2,
+      "context_window": 100,
+      "max_tokens": 4096,
+      "latency_ms": 3500
+    },
+    {
+      "id": "overflow-02-history",
+      "expected": "context_overflow",
+      "prompt": "Given our entire conversation so far, what did I decide about the vacation plan and the budget and the hotel?",
+      "output": "You decided to visit Italy in September, set a budget of three thousand dollars, and book a hotel near the city center.",
+      "chunks": ["Earlier in the conversation the user described many constraints about preferred travel dates, dietary restrictions, mobility considerations, budget ceilings, hotel star ratings, proximity to public transit, and a long list of attractions they hoped to see across several different cities over a multi-week itinerary."],
+      "similarity_scores": [0.77],
+      "temperature": 0.3,
+      "context_window": 120,
+      "max_tokens": 4096,
+      "latency_ms": 3600
+    },
+    {
+      "id": "entity-01-product",
+      "expected": "entity_gap",
+      "prompt": "What is the towing capacity of the Model Z truck?",
+      "output": "The Model Z truck has a towing capacity of 4500 kg and a payload rating of 1200 kg.",
+      "chunks": ["The Model Z truck is a midsize pickup with a turbocharged diesel engine.", "The Model Z truck features an eight speed automatic transmission and four wheel drive."],
+      "similarity_scores": [0.72, 0.69],
+      "temperature": 0.1
+    },
+    {
+      "id": "entity-02-spec",
+      "expected": "entity_gap",
+      "prompt": "What is the maximum torque of the Model X engine?",
+      "output": "The Model X engine produces a maximum torque of 420 Nm at 3500 rpm.",
+      "chunks": ["The Model X engine is a 2.0 liter turbocharged four cylinder unit.", "The Model X engine uses direct injection and a variable geometry turbo."],
+      "similarity_scores": [0.72, 0.70],
+      "temperature": 0.15
+    },
+    {
+      "id": "healthy-01",
+      "expected": "healthy",
+      "prompt": "What is the standard return window?",
+      "output": "Most items may be returned within 30 days with a receipt.",
+      "chunks": ["Returns: most items may be returned within 30 days with a receipt.", "Refunds are issued to the original payment method."],
+      "similarity_scores": [0.89, 0.84],
+      "temperature": 0.1
+    },
+    {
+      "id": "healthy-02",
+      "expected": "healthy",
+      "prompt": "Where is the company headquartered?",
+      "output": "The company is headquartered in Austin, Texas.",
+      "chunks": ["The company is headquartered in Austin, Texas.", "It was founded in 2012 and employs 500 people."],
+      "similarity_scores": [0.91, 0.78],
+      "temperature": 0.0
+    },
+    {
+      "id": "healthy-03",
+      "expected": "healthy",
+      "prompt": "What does the warranty cover?",
+      "output": "The warranty covers manufacturing defects for one year from the purchase date.",
+      "chunks": ["The warranty covers manufacturing defects for one year from the purchase date.", "Accidental damage is not covered under the standard warranty."],
+      "similarity_scores": [0.90, 0.82],
+      "temperature": 0.1
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DebugAI — Diagnosis Dashboard</title>
+<meta name="description" content="Live LLM failure diagnoses — every request broken down by signal, scored by confidence, shipped with a fix." />
+
+<!-- React UMD (pinned) must load before the DS bundle -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+
+<!-- DebugAI design system -->
+<link rel="stylesheet" href="/ds/styles.css" />
+<link rel="stylesheet" href="/static/dashboard.css" />
+<script src="/ds/_ds_bundle.js"></script>
+</head>
+<body>
+<div id="root">
+  <div class="boot">Loading DebugAI dashboard…</div>
+</div>
+<script type="text/babel" src="/static/dashboard.jsx"></script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!-- @dsCard group="Colors" viewport="1080x760" name="Color tokens" subtitle="Warm-dark ramp · amber signal accent · semantic states" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Color tokens</title>
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { padding: 44px; }
+  .grid { display: grid; gap: 34px; max-width: 1000px; }
+  .group h3 { margin-bottom: 4px; }
+  .group p { color: var(--text-tertiary); font-size: var(--text-sm); margin-bottom: 18px; max-width: 60ch; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+  .sw { border: 1px solid var(--border-subtle); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-raised); }
+  .sw__chip { height: 64px; border-bottom: 1px solid var(--border-faint); }
+  .sw__meta { padding: 9px 11px; }
+  .sw__name { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-secondary); }
+  .sw__val { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-quaternary); margin-top: 2px; }
+  .hdr { display:flex; align-items:baseline; gap:14px; margin-bottom: 8px; }
+  .hdr .ds-overline { color: var(--amber-base); }
+</style>
+</head>
+<body>
+<div class="grid">
+  <div class="hdr">
+    <span class="ds-overline">DebugAI · palette</span>
+    <span style="color:var(--text-tertiary); font-size:var(--text-sm);">Dark-mode first. Color carries signal, never decoration.</span>
+  </div>
+
+  <div class="group">
+    <h3 class="ds-h3">Surfaces</h3>
+    <p>Warm near-black ramp. Elevation reads as a half-step lighter, not a drop shadow.</p>
+    <div class="swatches" id="surfaces"></div>
+  </div>
+
+  <div class="group">
+    <h3 class="ds-h3">Text &amp; borders</h3>
+    <p>Off-white warm text ramp from primary to disabled; hairline warm-gray borders.</p>
+    <div class="swatches" id="textborder"></div>
+  </div>
+
+  <div class="group">
+    <h3 class="ds-h3">Amber — primary signal</h3>
+    <p>The one accent. Reserved for warnings, active signals, and the primary action.</p>
+    <div class="swatches" id="amber"></div>
+  </div>
+
+  <div class="group">
+    <h3 class="ds-h3">Semantic signals</h3>
+    <p>Clinical green (healthy), red (failure), cyan (trace/info). Each ships base · bright · muted surface.</p>
+    <div class="swatches" id="semantic"></div>
+  </div>
+</div>
+<script>
+  const sets = {
+    surfaces: [
+      ["--bg-base","app background"],["--bg-sunken","insets / wells"],["--bg-raised","cards"],
+      ["--bg-overlay","popovers"],["--bg-elevated","active"],
+    ],
+    textborder: [
+      ["--text-primary",""],["--text-secondary",""],["--text-tertiary",""],["--text-quaternary",""],
+      ["--border-subtle",""],["--border-default",""],["--border-strong",""],
+    ],
+    amber: [
+      ["--amber-50",""],["--amber-100",""],["--amber-300",""],["--amber-base","PRIMARY"],
+      ["--amber-600",""],["--amber-700",""],["--amber-muted","tinted surface"],
+    ],
+    semantic: [
+      ["--ok-base","healthy"],["--ok-bright",""],["--ok-muted",""],
+      ["--critical-base","failure"],["--critical-bright",""],["--critical-muted",""],
+      ["--trace-base","trace"],["--trace-bright",""],["--trace-muted",""],
+    ],
+  };
+  const cs = getComputedStyle(document.documentElement);
+  for (const [id, items] of Object.entries(sets)) {
+    const root = document.getElementById(id);
+    for (const [tok, note] of items) {
+      const val = cs.getPropertyValue(tok).trim();
+      const el = document.createElement("div");
+      el.className = "sw";
+      el.innerHTML = `<div class="sw__chip" style="background:${val}"></div>
+        <div class="sw__meta"><div class="sw__name">${tok}${note ? " · " + note : ""}</div>
+        <div class="sw__val">${val}</div></div>`;
+      root.appendChild(el);
+    }
+  }
+</script>
+</body>
+</html>

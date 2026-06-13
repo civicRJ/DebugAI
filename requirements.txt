@@ -1,0 +1,18 @@
+# Core ML / signal computation
+torch>=2.2
+sentence-transformers>=2.7
+spacy>=3.7
+transformers>=4.40
+
+# Layer 3 explainer
+anthropic>=0.40
+
+# Numerics
+numpy>=1.26
+
+# Web dashboard (Step 6)
+fastapi>=0.110
+uvicorn[standard]>=0.29
+
+# Dev / test
+pytest>=8.0

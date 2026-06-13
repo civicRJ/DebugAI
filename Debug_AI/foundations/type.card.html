@@ -1,0 +1,82 @@
+<!-- @dsCard group="Type" viewport="1080x760" name="Typography" subtitle="Hanken Grotesk UI · JetBrains Mono for data & code" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Typography</title>
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { padding: 44px; }
+  .grid { display: grid; gap: 40px; max-width: 1000px; }
+  .families { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .fam { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: 22px; background: var(--bg-raised); }
+  .fam__name { font-size: var(--text-h2); letter-spacing: var(--tracking-tight); }
+  .fam__role { margin: 4px 0 16px; }
+  .fam__glyphs { font-size: 30px; letter-spacing: 0.02em; color: var(--text-secondary); }
+  .scale { display: grid; gap: 2px; }
+  .scale__row { display: grid; grid-template-columns: 132px 1fr; align-items: baseline; gap: 24px; padding: 12px 0; border-bottom: 1px solid var(--border-faint); }
+  .scale__meta { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); }
+  .scale__meta b { color: var(--amber-300); font-weight: 500; display:block; margin-bottom:2px; }
+  .mono-feat { display:flex; gap: 28px; flex-wrap: wrap; margin-top: 6px; }
+  .mono-feat div { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 22px; color: var(--text-secondary); }
+  .mono-feat span { display:block; font-family: var(--font-sans); font-size: var(--text-2xs); color: var(--text-tertiary); letter-spacing: var(--tracking-caps); text-transform: uppercase; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="grid">
+  <div>
+    <span class="ds-overline" style="color:var(--amber-base)">DebugAI · type</span>
+    <div class="families" style="margin-top:14px;">
+      <div class="fam">
+        <div class="fam__name" style="font-family:var(--font-sans)">Hanken Grotesk</div>
+        <div class="fam__role ds-text-tertiary ds-sm">UI · headings, body, labels — neutral &amp; precise</div>
+        <div class="fam__glyphs" style="font-family:var(--font-sans)">AaGg 0123 — diagnose</div>
+      </div>
+      <div class="fam">
+        <div class="fam__name ds-mono">JetBrains Mono</div>
+        <div class="fam__role ds-text-tertiary ds-sm">Data · signals, values, code, ids</div>
+        <div class="fam__glyphs ds-mono">AaGg 0123 — 0x9af2</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="ds-overline" style="margin-bottom:14px;">Scale</div>
+    <div class="scale" id="scale"></div>
+  </div>
+
+  <div>
+    <div class="ds-overline" style="margin-bottom:10px;">Mono numerics — tabular &amp; sliced zero</div>
+    <div class="mono-feat">
+      <div><span>tabular</span>1,204.88<br/>9,640.10<br/>   12.00</div>
+      <div><span>sliced zero</span>0x9af2c1<br/>0.00ms<br/>p99 → 0</div>
+      <div><span>readout</span>100% · x6<br/>+340MB<br/>1.82s</div>
+    </div>
+  </div>
+</div>
+<script>
+  const rows = [
+    ["--text-display","Display","ds-display","Signal → diagnosis"],
+    ["--text-h1","H1","ds-h1","Connection pool exhausted"],
+    ["--text-h2","H2","ds-h2","Trace 0x9af2 failed"],
+    ["--text-h3","H3","ds-h3","Signal breakdown"],
+    ["--text-h4","H4","ds-h4","Suggested fix"],
+    ["--text-body-lg","Body L","ds-body-lg","Deterministic diagnoses your senior engineers can trust."],
+    ["--text-body","Body","ds-body","The default reading size for app surfaces and prose."],
+    ["--text-sm","Small","ds-sm","Secondary metadata and dense table content."],
+    ["--text-2xs","Overline","ds-overline","CONFIDENCE · 92%"],
+  ];
+  const cs = getComputedStyle(document.documentElement);
+  const root = document.getElementById("scale");
+  for (const [tok, label, cls, sample] of rows) {
+    const px = Math.round(parseFloat(cs.getPropertyValue(tok)) * 16);
+    const r = document.createElement("div");
+    r.className = "scale__row";
+    r.innerHTML = `<div class="scale__meta"><b>${label}</b>${tok} · ${px}px</div>
+      <div class="${cls}">${sample}</div>`;
+    root.appendChild(r);
+  }
+</script>
+</body>
+</html>

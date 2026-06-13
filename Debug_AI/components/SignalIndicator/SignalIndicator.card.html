@@ -1,0 +1,49 @@
+<!-- @dsCard group="Components" viewport="900x460" name="SignalIndicator" subtitle="Telemetry signal · fired & pending states" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SignalIndicator</title>
+<link rel="stylesheet" href="../../styles.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body { padding: 40px; }
+  .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 40px; max-width: 820px; align-items: start; }
+  .col { display: grid; gap: 10px; }
+  .col h4 { margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<div id="root" class="wrap"></div>
+<script>
+  const h = React.createElement;
+  const { SignalIndicator } = window.DesignSystem_90c6f1;
+
+  const fired = [
+    { name: "latency.p99", value: "1.82s", confidence: 0.92, status: "critical" },
+    { name: "heap.allocations", value: "+340MB", confidence: 0.74, status: "warn" },
+    { name: "db.pool.saturation", value: "0.31", confidence: 0.45, status: "ok" },
+    { name: "trace.span_count", value: "1,204", confidence: 0.6, status: "trace" },
+  ];
+  const pending = [
+    { name: "retry.cascade", value: "", confidence: 0, status: "warn", state: "pending" },
+    { name: "gc.pause", value: "", confidence: 0, status: "warn", state: "pending" },
+  ];
+
+  function Demo() {
+    return [
+      h("div", { className: "col", key: "a" },
+        h("h4", { className: "ds-overline" }, "Fired"),
+        ...fired.map((s, i) => h(SignalIndicator, { key: i, ...s }))),
+      h("div", { className: "col", key: "b" },
+        h("h4", { className: "ds-overline" }, "Pending (live)"),
+        ...pending.map((s, i) => h(SignalIndicator, { key: i, ...s }))),
+    ];
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(h(React.Fragment, null, ...Demo()));
+</script>
+</body>
+</html>

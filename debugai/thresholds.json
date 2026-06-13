@@ -1,0 +1,15 @@
+{
+  "_comment": "Default cold-start thresholds (Architecture §7.2). Per-user adaptive calibration replaces these after 50+ requests.",
+  "context_length_ratio_max": 0.85,
+  "token_usage_high": 0.80,
+  "latency_high_ms": 3000,
+  "overlap_low": 0.40,
+  "overlap_very_low": 0.30,
+  "similarity_min": 0.50,
+  "entity_coverage_min": 0.40,
+  "entity_coverage_hallucination": 0.50,
+  "contradiction_min": 0.20,
+  "variance_min": 0.30,
+  "temperature_high": 0.5,
+  "hallucination_fire": 0.50
+}

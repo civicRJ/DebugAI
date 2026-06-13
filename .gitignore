@@ -1,0 +1,18 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.DS_Store
+
+# Local tooling + confidential design doc (not for publishing)
+.claude/
+debugai_architecture_v3.pdf
+
+# Runtime state (regenerated on demand)
+server/diagnoses.json
+server/thresholds_state.json
+server/thresholds_*.json
+server/traces.json
+server/*.json.tmp
+server/debugai.db

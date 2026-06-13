@@ -1,0 +1,39 @@
+<!-- @dsCard group="Components" viewport="900x320" name="Badge" subtitle="Status tokens · ok / warn / critical / trace / neutral" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Badge</title>
+<link rel="stylesheet" href="../../styles.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body { padding: 40px; }
+  .wrap { display: grid; gap: 22px; max-width: 760px; }
+  .row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .lbl { width: 76px; flex: none; }
+</style>
+</head>
+<body>
+<div id="root" class="wrap"></div>
+<script>
+  const h = React.createElement;
+  const { Badge } = window.DesignSystem_90c6f1;
+  const variants = ["ok", "warn", "critical", "trace", "neutral"];
+  const labels = { ok: "healthy", warn: "degraded", critical: "failed", trace: "trace", neutral: "idle" };
+
+  function Demo() {
+    const row = (label, kids) => h("div", { className: "row" },
+      h("span", { className: "lbl ds-overline" }, label), ...kids);
+    return [
+      row("dot", variants.map((v) => h(Badge, { key: v, variant: v, dot: true }, labels[v]))),
+      row("plain", variants.map((v) => h(Badge, { key: v, variant: v }, labels[v]))),
+      row("solid", ["ok", "warn", "critical"].map((v) => h(Badge, { key: v, variant: v, solid: true }, labels[v]))),
+    ];
+  }
+  ReactDOM.createRoot(document.getElementById("root")).render(h(React.Fragment, null, ...Demo()));
+</script>
+</body>
+</html>

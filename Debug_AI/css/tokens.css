@@ -1,0 +1,161 @@
+/* ============================================================
+   DebugAI — TOKENS
+   Warm-dark, high-signal, clinical. Amber = signal/warning.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* ---------- Font families ---------- */
+  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, monospace;
+
+  /* ============================================================
+     COLOR — primitives
+     ============================================================ */
+
+  /* Warm near-black background ramp */
+  --bg-void:      #08070500;   /* transparent edge of void (for gradients) */
+  --bg-base:      #0D0C0A;     /* app background */
+  --bg-sunken:    #0A0907;     /* code wells, insets */
+  --bg-raised:    #15130E;     /* cards, panels */
+  --bg-overlay:   #1C1914;     /* popovers, hovered rows */
+  --bg-elevated:  #232017;     /* active surfaces */
+
+  /* Warm gray borders */
+  --border-faint:   #211E18;
+  --border-subtle:  #2B2820;
+  --border-default: #38342A;
+  --border-strong:  #4C4636;
+
+  /* Warm off-white text ramp */
+  --text-primary:   #F4F0E6;
+  --text-secondary: #ABA593;
+  --text-tertiary:  #757061;
+  --text-quaternary:#544F44;
+  --text-disabled:  #403C33;
+
+  /* ---------- Amber (primary signal accent) ---------- */
+  --amber-50:  #FBEFD6;
+  --amber-100: #F8DCA6;
+  --amber-300: #F3BB5B;
+  --amber-base:#EF9F27;   /* PRIMARY */
+  --amber-600: #D9881A;
+  --amber-700: #A9670F;
+  --amber-900: #4F360E;
+  --amber-muted:#2A2010;  /* tinted surface */
+  --amber-glow: rgba(239, 159, 39, 0.45);
+
+  /* ---------- Semantic signal colors ---------- */
+  /* OK / healthy — clinical green */
+  --ok-base:   #43C28A;
+  --ok-bright: #5FE0A6;
+  --ok-muted:  #112019;
+  --ok-glow:   rgba(67, 194, 138, 0.4);
+
+  /* Critical / failure — red */
+  --critical-base:   #F0563D;
+  --critical-bright: #FF7458;
+  --critical-muted:  #29130E;
+  --critical-glow:   rgba(240, 86, 61, 0.45);
+
+  /* Trace / info — cool cyan */
+  --trace-base:   #3FB6CC;
+  --trace-bright: #5FD6EC;
+  --trace-muted:  #0C1E22;
+  --trace-glow:   rgba(63, 182, 204, 0.4);
+
+  /* Warn = amber (alias) */
+  --warn-base:  var(--amber-base);
+  --warn-muted: var(--amber-muted);
+
+  /* Neutral signal */
+  --neutral-base:  #8C8676;
+  --neutral-muted: #1C1A14;
+
+  /* ============================================================
+     COLOR — semantic roles
+     ============================================================ */
+  --accent:           var(--amber-base);
+  --accent-hover:     var(--amber-300);
+  --accent-contrast:  #1A1304;     /* text on amber */
+  --focus-ring:       rgba(239, 159, 39, 0.55);
+
+  /* ============================================================
+     TYPE SCALE  (1.25 ratio, tuned)
+     ============================================================ */
+  --text-display:  3.5rem;   /* 56 */
+  --text-h1:       2.5rem;   /* 40 */
+  --text-h2:       1.875rem; /* 30 */
+  --text-h3:       1.375rem; /* 22 */
+  --text-h4:       1.125rem; /* 18 */
+  --text-body-lg:  1.0625rem;/* 17 */
+  --text-body:     0.9375rem;/* 15 */
+  --text-sm:       0.8125rem;/* 13 */
+  --text-xs:       0.75rem;  /* 12 */
+  --text-2xs:      0.6875rem;/* 11 */
+
+  --leading-tight:   1.1;
+  --leading-snug:    1.3;
+  --leading-normal:  1.55;
+
+  --tracking-tight:   -0.02em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.02em;
+  --tracking-caps:    0.12em;  /* overlines / labels */
+
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+  --weight-black:    800;
+
+  /* ============================================================
+     SPACING  (4px base)
+     ============================================================ */
+  --space-0:  0;
+  --space-1:  0.25rem;  /* 4  */
+  --space-2:  0.5rem;   /* 8  */
+  --space-3:  0.75rem;  /* 12 */
+  --space-4:  1rem;     /* 16 */
+  --space-5:  1.25rem;  /* 20 */
+  --space-6:  1.5rem;   /* 24 */
+  --space-8:  2rem;     /* 32 */
+  --space-10: 2.5rem;   /* 40 */
+  --space-12: 3rem;     /* 48 */
+  --space-16: 4rem;     /* 64 */
+  --space-20: 5rem;     /* 80 */
+  --space-24: 6rem;     /* 96 */
+
+  /* ============================================================
+     RADII  (tight / clinical — no pill SaaS vibes)
+     ============================================================ */
+  --radius-xs:   2px;
+  --radius-sm:   3px;
+  --radius-md:   5px;
+  --radius-lg:   8px;
+  --radius-xl:   12px;
+  --radius-full: 999px;
+
+  /* ============================================================
+     SHADOWS / ELEVATION
+     ============================================================ */
+  --shadow-sm:  0 1px 2px rgba(0,0,0,0.5);
+  --shadow-md:  0 4px 14px rgba(0,0,0,0.5);
+  --shadow-lg:  0 18px 48px rgba(0,0,0,0.6);
+  --shadow-inset: inset 0 1px 0 rgba(255,255,255,0.03);
+  --glow-amber:    0 0 0 1px rgba(239,159,39,0.35), 0 0 22px -4px var(--amber-glow);
+  --glow-ok:       0 0 0 1px rgba(67,194,138,0.3), 0 0 18px -4px var(--ok-glow);
+  --glow-critical: 0 0 0 1px rgba(240,86,61,0.35), 0 0 22px -4px var(--critical-glow);
+
+  /* ---------- Motion ---------- */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);    /* @kind other */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* @kind other */
+  --dur-fast: 120ms; /* @kind other */
+  --dur-med:  240ms; /* @kind other */
+  --dur-slow: 480ms; /* @kind other */
+
+  /* ---------- Layout ---------- */
+  --container: 1200px;
+  --container-narrow: 880px;
+}

@@ -1,0 +1,7 @@
+/* ============================================================
+   DebugAI Design System — global entry stylesheet
+   Tokens, base styles, and component classes live in ./css/*
+   ============================================================ */
+@import "./css/tokens.css";
+@import "./css/base.css";
+@import "./css/components.css";

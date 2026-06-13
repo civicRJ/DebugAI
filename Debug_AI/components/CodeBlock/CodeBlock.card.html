@@ -1,0 +1,45 @@
+<!-- @dsCard group="Components" viewport="820x460" name="CodeBlock" subtitle="Terminal-style readout · line numbers, highlight, copy" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CodeBlock</title>
+<link rel="stylesheet" href="../../styles.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body { padding: 40px; }
+  .wrap { max-width: 680px; }
+</style>
+</head>
+<body>
+<div id="root" class="wrap"></div>
+<script>
+  const h = React.createElement;
+  const { CodeBlock } = window.DesignSystem_90c6f1;
+  const T = (c, t) => h("span", { className: c }, t);
+
+  // hand-tinted line markup
+  const lines = [
+    [ T("tok-com", "// worker.ts — line 88") ],
+    [ T("tok-key", "async function "), T("tok-fn", "processBatch"), T("tok-punc", "("), "items", T("tok-punc", ") {") ],
+    [ "  ", T("tok-key", "for "), T("tok-punc", "("), T("tok-key", "const "), "item ", T("tok-key", "of "), "items", T("tok-punc", ") {") ],
+    [ "    ", T("tok-key", "await "), T("tok-fn", "db.write"), T("tok-punc", "("), "item", T("tok-punc", ")") ],
+    [ "  ", T("tok-punc", "}"), "  ", T("tok-err", "// ← unbounded, no backpressure") ],
+    [ T("tok-punc", "}") ],
+  ];
+
+  const rawCode = "// worker.ts — line 88\nasync function processBatch(items) {\n  for (const item of items) {\n    await db.write(item)\n  }  // ← unbounded, no backpressure\n}";
+
+  const tinted = lines.map((parts, i) =>
+    h("span", { key: i, className: "code-block__ln" + (i === 4 ? " code-block__ln--hl" : "") }, ...parts));
+
+  ReactDOM.createRoot(document.getElementById("root")).render(
+    h(CodeBlock, { filename: "src/queue/worker.ts", language: "ts", code: rawCode },
+      ...tinted)
+  );
+</script>
+</body>
+</html>

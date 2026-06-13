@@ -1,0 +1,53 @@
+<!-- @dsCard group="Components" viewport="640x600" name="DiagnosticCard" subtitle="The signature failure readout · signals + confidence + fix" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DiagnosticCard</title>
+<link rel="stylesheet" href="../../styles.css" />
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body { padding: 40px; display: grid; place-items: start center; }
+  .wrap { max-width: 560px; width: 100%; }
+</style>
+</head>
+<body>
+<div id="root" class="wrap"></div>
+<script>
+  const h = React.createElement;
+  const { DiagnosticCard, Button } = window.DesignSystem_90c6f1;
+
+  const fix = h(React.Fragment, null,
+    "Queue writes through a bounded channel. Wrap the loop with ",
+    h("code", null, "pLimit(8)"),
+    " and apply backpressure before ",
+    h("code", null, "db.write()"),
+    " to cap concurrent connections.");
+
+  ReactDOM.createRoot(document.getElementById("root")).render(
+    h(DiagnosticCard, {
+      severity: "critical",
+      id: "DX-4471 · trace 0x9af2c1",
+      title: "Connection pool exhausted under batch load",
+      location: 'src/queue/<b>worker.ts:88</b> · processBatch()',
+      confidence: 0.92,
+      signals: [
+        { name: "db.pool.saturation", value: "100%", confidence: 1.0, status: "critical" },
+        { name: "latency.p99", value: "1.82s", confidence: 0.88, status: "critical" },
+        { name: "queue.depth", value: "12,400", confidence: 0.71, status: "warn" },
+        { name: "retry.rate", value: "x6", confidence: 0.52, status: "warn" },
+      ],
+      fix: fix,
+      actions: h(React.Fragment, null,
+        h(Button, { variant: "primary", size: "sm" }, "Apply fix"),
+        h(Button, { variant: "secondary", size: "sm" }, "Open trace"),
+        h("span", { className: "diag__foot-spacer" }),
+        h(Button, { variant: "ghost", size: "sm" }, "Dismiss")),
+    })
+  );
+</script>
+</body>
+</html>

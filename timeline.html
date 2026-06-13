@@ -1,0 +1,151 @@
+<style>
+  .ap-wrap{font-family:var(--font-sans,system-ui,-apple-system,sans-serif);padding:1rem 0}
+  .ap-step{padding:16px 18px;border:0.5px solid var(--color-border-tertiary,#e0e0e0);border-radius:12px;margin-bottom:10px;cursor:pointer;background:var(--color-background-primary,#fff);transition:border-color 0.2s}
+  .ap-step:hover{border-color:var(--color-border-secondary,#bbb)}
+  .ap-step.active{border-color:var(--color-border-info,#378ADD)}
+  .ap-step-header{display:flex;align-items:center;gap:10px}
+  .ap-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;flex-shrink:0}
+  .ap-num-now{background:var(--color-background-info,#E6F1FB);color:var(--color-text-info,#185FA5)}
+  .ap-num-next{background:var(--color-background-secondary,#f5f5f5);color:var(--color-text-secondary,#666)}
+  .ap-step-title{font-size:15px;font-weight:500;color:var(--color-text-primary,#1a1a1a)}
+  .ap-step-time{font-size:12px;color:var(--color-text-tertiary,#999);margin-left:auto;white-space:nowrap}
+  .ap-detail{display:none;margin-top:14px;padding-top:14px;border-top:0.5px solid var(--color-border-tertiary,#e0e0e0)}
+  .ap-step.active .ap-detail{display:block}
+  .ap-what{font-size:13px;color:var(--color-text-secondary,#666);line-height:1.7;margin-bottom:10px}
+  .ap-task-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+  @media(max-width:500px){.ap-task-grid{grid-template-columns:1fr}}
+  .ap-task{padding:10px 12px;border-radius:8px;background:var(--color-background-secondary,#f5f5f5)}
+  .ap-task-name{font-size:13px;font-weight:500;color:var(--color-text-primary,#1a1a1a)}
+  .ap-task-detail{font-size:12px;color:var(--color-text-secondary,#666);margin-top:2px;line-height:1.5}
+  .ap-done{padding:10px 14px;border-radius:8px;font-size:13px;line-height:1.6}
+  .ap-done-label{font-size:11px;font-weight:500;margin-bottom:4px}
+  .ap-done-ok{background:var(--color-background-success,#EAF3DE);color:var(--color-text-success,#27500A)}
+  .ap-done-check{background:var(--color-background-warning,#FAEEDA);color:var(--color-text-warning,#633806)}
+  .ap-tools{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;margin-bottom:10px}
+  .ap-tool-tag{font-size:11px;padding:3px 10px;border-radius:8px;background:var(--color-background-secondary,#f5f5f5);color:var(--color-text-secondary,#666);border:0.5px solid var(--color-border-tertiary,#e0e0e0)}
+  .ap-section-label{font-size:12px;font-weight:500;color:var(--color-text-primary,#1a1a1a);margin-bottom:6px;margin-top:10px}
+  .ap-rule{margin-top:16px;padding:14px 16px;border-radius:12px;background:var(--color-background-secondary,#f5f5f5)}
+  .ap-rule-title{font-size:14px;font-weight:500;color:var(--color-text-primary,#1a1a1a);margin-bottom:6px}
+  .ap-rule-body{font-size:13px;color:var(--color-text-secondary,#666);line-height:1.6}
+  .ap-chevron{transition:transform 0.2s;font-size:12px;color:var(--color-text-tertiary,#999)}
+  .ap-step.active .ap-chevron{transform:rotate(90deg)}
+</style>
+<div class="ap-wrap">
+  <div id="ap-steps"></div>
+  <div class="ap-rule">
+    <div class="ap-rule-title">The rule that matters</div>
+    <div class="ap-rule-body">Don't build Step N+1 until Step N works. Every step has a "done when" check. If you can't pass it, stay on that step. The biggest startup killer is building features before the core works.</div>
+  </div>
+</div>
+<script>
+const steps=[
+{num:"0",title:"Collect 20 real LLM failures",time:"Week 1",now:true,
+what:"Before writing any code, you need a test dataset. Without real failures to validate against, you're building blind. This is the single most important step.",
+tasks:[
+{name:"Find 10 RAG failures",detail:"Use your own projects, open-source RAG demos, or ask developer friends. Save: prompt, chunks, output, what went wrong."},
+{name:"Find 5 hallucinations",detail:"Cases where retrieval worked but LLM invented facts. Medical, legal, or financial domains are rich sources."},
+{name:"Find 3 prompt brittleness cases",detail:"Same prompt, different outputs each run. Run any RAG system 5x at temperature 0.7+ and compare."},
+{name:"Find 2 context overflow cases",detail:"Stuff a context window with 100+ chunks and watch quality degrade."}],
+tools:["ChatGPT / Claude API","LangChain RAG templates","Any vector DB (Pinecone, Chroma)","JSON for storage"],
+done:"You have 20 labeled examples in a JSON file, each with: prompt, chunks, output, expected_output, failure_type, what_went_wrong.",
+check:"Can you explain each failure to another developer in one sentence? If not, you don't understand it well enough yet."},
+{num:"1",title:"Build the signal extraction layer",time:"Weeks 2-3",now:false,
+what:"Build Layer 1: the 8 signal computations as pure Python functions. No API, no SDK, no dashboard. Just functions that take (prompt, output, chunks) and return a signal vector.",
+tasks:[
+{name:"Overlap (hybrid)",detail:"Token Jaccard + sentence-transformers cosine. Weighted 0.35 / 0.65. Use all-MiniLM-L6-v2."},
+{name:"Entity coverage (tiered)",detail:"spaCy en_core_web_sm first, domain regex fallback. LLM fallback stubbed for later."},
+{name:"Contradiction (NLI)",detail:"cross-encoder/nli-MiniLM2-L6-H768 for fast path. DeBERTa stub for ambiguous zone."},
+{name:"Similarity + cheap signals",detail:"Similarity from input scores. Token ratio, context ratio, latency: trivial computations."}],
+tools:["Python 3.11+","spaCy","sentence-transformers","cross-encoder","pytest"],
+done:"Run all 20 test cases through compute_signals(). Every signal returns a float. No crashes, no NaN values.",
+check:"Do the anomalous signals fire on the failure cases and stay normal on healthy ones? If not, tune the computation before moving on."},
+{num:"2",title:"Build the rule engine",time:"Week 4",now:false,
+what:"Build Layer 2: the 5 failure detectors as pure Python functions. Takes a signal vector, returns a Diagnosis with primary + secondary failures. Use hardcoded default thresholds for now.",
+tasks:[
+{name:"5 detector functions",detail:"Context overflow, retrieval failure, entity gap, hallucination, prompt brittleness. Exact pseudocode from the architecture doc."},
+{name:"Diagnosis pipeline",detail:"Run all 5 detectors. Sort by confidence. Return primary + secondary results."},
+{name:"Variance proxy estimation",detail:"Estimate from temperature + prompt constraints. No multi-run needed."},
+{name:"Threshold config",detail:"JSON config with default thresholds. Will become adaptive later."}],
+tools:["Python","pytest","Your 20 test cases"],
+done:"Run all 20 test cases. The rule engine correctly classifies at least 16/20 (80%). You know exactly why the other 4 fail.",
+check:"For every diagnosis, is the fix suggestion more useful than 'add more context'? Read each one and be brutally honest."},
+{num:"3",title:"Build the analyze() function",time:"Week 5",now:false,
+what:"Package Layer 1 + Layer 2 into the Level 1 API: a single function call. This is your MVP product. Add Layer 3 (LLM explainer) to translate diagnosis into human-readable output.",
+tasks:[
+{name:"analyze() function",detail:"Single entry point. Takes (prompt, output, chunks), returns structured diagnosis JSON."},
+{name:"Layer 3 LLM explainer",detail:"Takes structured diagnosis, sends to LLM with a template, returns human-readable explanation + fix."},
+{name:"JSON output format",detail:"{ primary: {failure, confidence, root_cause, fix}, secondary: [...], signals: {...} }"},
+{name:"pip-installable package",detail:"debugai package on PyPI (or GitHub install). One command to install."}],
+tools:["Python packaging (poetry)","OpenAI or Anthropic API for Layer 3","GitHub","PyPI"],
+done:"A developer can pip install debugai, call analyze(prompt, output, chunks), and get back a useful diagnosis in < 2 seconds.",
+check:"Give it to 3 developer friends. Do they understand the output without your explanation? Do they say 'oh, that's actually useful'?"},
+{num:"4",title:"Test with 5 real users",time:"Weeks 6-7",now:false,
+what:"Find 5 developers building LLM apps. Get them to try debugai.analyze() on their actual failures. This is your reality check. Do NOT build anything else until this step works.",
+tasks:[
+{name:"Find 5 beta users",detail:"Twitter/X, Discord (LangChain, LlamaIndex communities), HN, friends. Offer free help debugging their LLM app."},
+{name:"Watch them use it",detail:"Pair-program or screen-share. See where they get confused, where signals are wrong, where fixes are vague."},
+{name:"Collect structured feedback",detail:"For each session: what worked, what didn't, what they wished it said instead. Record in a doc."},
+{name:"Iterate on signal logic",detail:"Fix the specific failures. Tune thresholds. Improve fix specificity based on real data."}],
+tools:["Twitter/Discord for outreach","Zoom/screen share","Notion or Google Doc for feedback log"],
+done:"At least 3 out of 5 users say they would use this again. You have a concrete list of specific improvements.",
+check:"Did any user's diagnosis actually change how they fixed their bug? If yes: you have a product. If no: go back to Step 2."},
+{num:"5",title:"Build the SDK wrapper (Level 2)",time:"Weeks 8-9",now:false,
+what:"Build wrap_llm() that auto-captures prompt, output, context, and metadata. This is the low-friction integration that makes adoption sticky and switching costs real.",
+tasks:[
+{name:"OpenAI wrapper",detail:"wrap_llm(OpenAI()) that intercepts .chat.completions.create() and auto-logs everything."},
+{name:"Anthropic wrapper",detail:"Same pattern for Anthropic's messages API."},
+{name:"LangChain callback",detail:"LangChain callback handler that captures the full RAG pipeline automatically."},
+{name:"Async + batching",detail:"Don't block the user's request. Send signal computation async. Batch process in background."}],
+tools:["Python","OpenAI SDK","Anthropic SDK","LangChain","asyncio"],
+done:"A developer wraps their LLM client in one line and gets automatic diagnosis on every request without changing their app code.",
+check:"Does the wrapper add < 10ms latency to the user's request? Does it correctly capture all 4 data groups?"},
+{num:"6",title:"Build dashboard + adaptive thresholds",time:"Weeks 10-12",now:false,
+what:"Now (and only now) build the web dashboard and threshold calibration. You've earned it because you have real users generating real data to calibrate against.",
+tasks:[
+{name:"Simple web dashboard",detail:"List of recent diagnoses. Filter by failure type. Click into detail. Nothing fancy yet."},
+{name:"Threshold calibration",detail:"After 50 requests, auto-compute per-user thresholds from their 'known good' baseline."},
+{name:"Failure graph v1",detail:"Start accumulating signal \u2192 failure \u2192 fix patterns across users."},
+{name:"Alerting",detail:"Slack/email alert when a new failure pattern is detected. Keep it simple."}],
+tools:["FastAPI backend","React or Next.js frontend","PostgreSQL","Redis for caching","Resend for alerts"],
+done:"Dashboard shows real diagnosis history. Thresholds auto-calibrate after 50 requests. At least 2 users check it weekly.",
+check:"Do users check the dashboard regularly? Or do they only use the API? That tells you what to invest in next."}
+];
+
+const el=document.getElementById('ap-steps');
+let activeIdx=0;
+
+function render(idx){
+  activeIdx=idx;
+  el.innerHTML='';
+  steps.forEach((s,i)=>{
+    const isActive=i===idx;
+    const div=document.createElement('div');
+    div.className='ap-step'+(isActive?' active':'');
+    div.onclick=()=>render(isActive?-1:i);
+    let tasksHTML='<div class="ap-task-grid">';
+    s.tasks.forEach(t=>{tasksHTML+='<div class="ap-task"><div class="ap-task-name">'+t.name+'</div><div class="ap-task-detail">'+t.detail+'</div></div>';});
+    tasksHTML+='</div>';
+    let toolsHTML='<div class="ap-tools">';
+    s.tools.forEach(t=>{toolsHTML+='<span class="ap-tool-tag">'+t+'</span>';});
+    toolsHTML+='</div>';
+    div.innerHTML=
+      '<div class="ap-step-header">'+
+        '<div class="ap-num '+(s.now?'ap-num-now':'ap-num-next')+'">'+s.num+'</div>'+
+        '<div class="ap-step-title">'+s.title+'</div>'+
+        '<div class="ap-step-time">'+s.time+'</div>'+
+        '<span class="ap-chevron">&#9654;</span>'+
+      '</div>'+
+      '<div class="ap-detail">'+
+        '<div class="ap-what">'+s.what+'</div>'+
+        '<div class="ap-section-label">What to build</div>'+
+        tasksHTML+
+        '<div class="ap-section-label">Tools</div>'+
+        toolsHTML+
+        '<div class="ap-done ap-done-ok"><div class="ap-done-label">Done when</div>'+s.done+'</div>'+
+        '<div class="ap-done ap-done-check" style="margin-top:6px"><div class="ap-done-label">Honest check</div>'+s.check+'</div>'+
+      '</div>';
+    el.appendChild(div);
+  });
+}
+render(0);
+</script>

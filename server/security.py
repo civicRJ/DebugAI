@@ -1,0 +1,132 @@
+"""Production security middleware: security headers, opt-in API-key auth, and
+an in-memory per-client rate limiter.
+
+All three are configured via environment variables so the local demo stays
+zero-config while a hosted deployment can lock down:
+
+    DEBUGAI_API_KEY        if set, /api/* requires a matching X-API-Key header
+    DEBUGAI_RATE_LIMIT     max /api/* requests per minute per client (default 240)
+    DEBUGAI_TRUST_PROXY    if set, honour the first X-Forwarded-For hop (behind a proxy)
+"""
+
+from __future__ import annotations
+
+import hmac
+import os
+import threading
+import time
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse, Response
+
+_API_PREFIX = "/api"
+MAX_BODY_BYTES = 4 * 1024 * 1024  # 4 MB — reject oversized request bodies (DoS guard)
+
+# Restrictive headers. The CSP intentionally allows the unpkg CDN + inline/eval
+# because the dashboard transforms JSX in-browser via Babel standalone; it still
+# blocks framing, plugins, and base-tag hijacking.
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com; "
+    "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "img-src 'self' data:; media-src 'self'; "
+    "connect-src 'self'; font-src 'self' data:; "
+    "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+)
+_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Content-Security-Policy": _CSP,
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        resp: Response = await call_next(request)
+        for k, v in _HEADERS.items():
+            resp.headers.setdefault(k, v)
+        return resp
+
+
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    """When DEBUGAI_API_KEY is set, require it on /api/* via X-API-Key (constant
+    -time compared). No key configured → open (local-dev default)."""
+
+    async def dispatch(self, request: Request, call_next):
+        key = os.environ.get("DEBUGAI_API_KEY")
+        if key and request.url.path.startswith(_API_PREFIX):
+            supplied = request.headers.get("x-api-key", "")
+            if not hmac.compare_digest(supplied, key):
+                return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
+
+
+class BodyLimitMiddleware(BaseHTTPMiddleware):
+    """Reject requests whose declared body exceeds MAX_BODY_BYTES (DoS guard)."""
+
+    async def dispatch(self, request: Request, call_next):
+        cl = request.headers.get("content-length")
+        if cl and cl.isdigit() and int(cl) > MAX_BODY_BYTES:
+            return JSONResponse({"detail": "request body too large"}, status_code=413)
+        return await call_next(request)
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Fixed-window per-client limiter on /api/* (in-memory, single-process)."""
+
+    def __init__(self, app, per_minute: int | None = None):
+        super().__init__(app)
+        self._limit = per_minute or int(os.environ.get("DEBUGAI_RATE_LIMIT", "240"))
+        self._window = 60.0
+        self._lock = threading.Lock()
+        self._hits: dict[str, tuple[float, int]] = {}
+
+    def _client(self, request: Request) -> str:
+        if os.environ.get("DEBUGAI_TRUST_PROXY"):
+            fwd = request.headers.get("x-forwarded-for")
+            if fwd:
+                return fwd.split(",")[0].strip()
+        return request.client.host if request.client else "unknown"
+
+    async def dispatch(self, request: Request, call_next):
+        if self._limit <= 0 or not request.url.path.startswith(_API_PREFIX):
+            return await call_next(request)
+        now = time.monotonic()
+        ip = self._client(request)
+        with self._lock:
+            start, count = self._hits.get(ip, (now, 0))
+            if now - start >= self._window:
+                start, count = now, 0
+            count += 1
+            self._hits[ip] = (start, count)
+            # opportunistic cleanup so the dict can't grow unbounded
+            if len(self._hits) > 10_000:
+                self._hits = {k: v for k, v in self._hits.items() if now - v[0] < self._window}
+            over = count > self._limit
+            retry = max(1, int(self._window - (now - start)))
+        if over:
+            return JSONResponse({"detail": "rate limit exceeded"}, status_code=429,
+                                headers={"Retry-After": str(retry)})
+        return await call_next(request)
+
+
+def install(app) -> None:
+    """Attach the security stack. Starlette runs the LAST-added middleware
+    outermost, so add inner→outer to get this execution order:
+
+        SecurityHeaders → RateLimit → BodyLimit → route
+
+    (Security headers therefore decorate even 429/413 responses; rate limiting
+    fires before any work is done.)
+
+    Note: account auth (session cookies) is enforced per-route via the
+    `require_user` dependency in app.py, which supersedes the old
+    DEBUGAI_API_KEY gate. APIKeyMiddleware remains available for deployments
+    that still want a coarse network-level key in front of everything.
+    """
+    app.add_middleware(BodyLimitMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)

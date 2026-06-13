@@ -1,0 +1,73 @@
+<!-- @dsCard group="Spacing" viewport="1080x680" name="Spacing, radii & elevation" subtitle="4px base scale · tight clinical radii · glow elevation" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Spacing, radii & elevation</title>
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  body { padding: 44px; }
+  .grid { display: grid; gap: 40px; max-width: 1000px; }
+  h3 { margin-bottom: 16px; }
+  .space-row { display: grid; grid-template-columns: 120px 1fr; align-items: center; gap: 16px; padding: 6px 0; }
+  .space-row .meta { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); }
+  .space-row .meta b { color: var(--amber-300); font-weight: 500; }
+  .bar { height: 14px; background: var(--amber-base); border-radius: var(--radius-xs); box-shadow: 0 0 12px -2px var(--amber-glow); }
+  .radii { display: flex; gap: 18px; flex-wrap: wrap; }
+  .radii .r { display: grid; gap: 8px; justify-items: center; }
+  .radii .box { width: 84px; height: 64px; background: var(--bg-elevated); border: 1px solid var(--border-strong); }
+  .radii .meta { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); }
+  .elev { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap: 22px; }
+  .elev .card { height: 96px; border-radius: var(--radius-lg); background: var(--bg-raised); border: 1px solid var(--border-subtle); display:grid; place-items:center; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); }
+</style>
+</head>
+<body>
+<div class="grid">
+  <div>
+    <span class="ds-overline" style="color:var(--amber-base)">DebugAI · spacing</span>
+    <h3 class="ds-h3" style="margin-top:12px;">Spacing scale — 4px base</h3>
+    <div id="space"></div>
+  </div>
+
+  <div>
+    <h3 class="ds-h3">Radii — tight by intent</h3>
+    <div class="radii" id="radii"></div>
+  </div>
+
+  <div>
+    <h3 class="ds-h3">Elevation</h3>
+    <div class="elev">
+      <div class="card" style="box-shadow:var(--shadow-sm)">shadow-sm</div>
+      <div class="card" style="box-shadow:var(--shadow-md)">shadow-md</div>
+      <div class="card" style="box-shadow:var(--shadow-lg)">shadow-lg</div>
+      <div class="card" style="box-shadow:var(--glow-amber); border-color:transparent;">glow-amber</div>
+      <div class="card" style="box-shadow:var(--glow-critical); border-color:transparent;">glow-critical</div>
+      <div class="card" style="box-shadow:var(--glow-ok); border-color:transparent;">glow-ok</div>
+    </div>
+  </div>
+</div>
+<script>
+  const cs = getComputedStyle(document.documentElement);
+  const spaces = ["--space-1","--space-2","--space-3","--space-4","--space-5","--space-6","--space-8","--space-10","--space-12","--space-16"];
+  const sroot = document.getElementById("space");
+  for (const tok of spaces) {
+    const val = cs.getPropertyValue(tok).trim();
+    const px = Math.round(parseFloat(val) * 16);
+    const r = document.createElement("div");
+    r.className = "space-row";
+    r.innerHTML = `<div class="meta"><b>${tok.replace("--space-","space-")}</b> · ${px}px</div><div class="bar" style="width:${px}px"></div>`;
+    sroot.appendChild(r);
+  }
+  const radii = ["--radius-xs","--radius-sm","--radius-md","--radius-lg","--radius-xl","--radius-full"];
+  const rroot = document.getElementById("radii");
+  for (const tok of radii) {
+    const val = cs.getPropertyValue(tok).trim();
+    const r = document.createElement("div");
+    r.className = "r";
+    r.innerHTML = `<div class="box" style="border-radius:${val}"></div><div class="meta">${tok.replace("--radius-","")} · ${val}</div>`;
+    rroot.appendChild(r);
+  }
+</script>
+</body>
+</html>

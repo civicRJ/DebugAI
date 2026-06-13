@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "debugai"
+version = "0.1.0"
+description = "AI observability & debugging — diagnose why LLM outputs fail and get specific fixes."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "torch>=2.2",
+    "sentence-transformers>=2.7",
+    "spacy>=3.7",
+    "transformers>=4.40",
+    "anthropic>=0.40",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+server = ["fastapi>=0.110", "uvicorn[standard]>=0.29"]
+
+[project.scripts]
+debugai = "debugai.cli:main"
+
+[tool.setuptools]
+packages = ["debugai"]
+
+[tool.setuptools.package-data]
+debugai = ["thresholds.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

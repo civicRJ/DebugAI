@@ -32,4 +32,5 @@ debugai = ["thresholds.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]   # make debugai/ and server/ importable under plain `pytest`
 filterwarnings = ["ignore::DeprecationWarning", "ignore::FutureWarning"]

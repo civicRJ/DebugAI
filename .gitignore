@@ -8,7 +8,7 @@ __pycache__/
 
 # Secrets + local env (never commit)
 .env
-.env.*
+.env.local
 
 # Local tooling + confidential design doc (not for publishing)
 .claude/

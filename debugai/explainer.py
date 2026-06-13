@@ -50,25 +50,27 @@ def _deterministic(diag: Diagnosis) -> dict:
     return {"explanation": explanation, "fix": p.fix, "model": "deterministic"}
 
 
-def _client():
+def _client(api_key: str | None = None):
     """Return an Anthropic client, or None if unavailable (fail open)."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
         return None
     try:
         import anthropic
 
-        return anthropic.Anthropic(timeout=30.0, max_retries=2)
+        return anthropic.Anthropic(api_key=key, timeout=30.0, max_retries=2)
     except Exception as e:  # pragma: no cover - environment dependent
         log.warning("Anthropic client unavailable (%s); using deterministic explain", e)
         return None
 
 
-def explain(diag: Diagnosis, model: str = DEFAULT_MODEL) -> dict:
+def explain(diag: Diagnosis, model: str = DEFAULT_MODEL,
+            api_key: str | None = None) -> dict:
     """Produce {explanation, fix, model} for a diagnosis."""
     if diag.healthy or diag.primary is None:
         return _deterministic(diag)
 
-    client = _client()
+    client = _client(api_key=api_key)
     if client is None:
         return _deterministic(diag)
 

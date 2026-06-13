@@ -203,6 +203,93 @@
   }
 
   // ── Tokens section (used inside Account) ──────────────────────────────────
+  // ── LLM Keys section ──────────────────────────────────────────────────────
+  const PROVIDERS = [
+    { id: "openai", label: "OpenAI", placeholder: "sk-...", hint: "Used for the instruction-adherence judge and fix re-runs." },
+    { id: "anthropic", label: "Anthropic", placeholder: "sk-ant-...", hint: "Used for the LLM explainer (human-readable diagnosis text)." },
+  ];
+
+  function LLMKeys() {
+    const [keys, setKeys] = useState({});     // { openai: {set, updated_at}, ... }
+    const [editing, setEditing] = useState({}); // { openai: "" }
+    const [saving, setSaving] = useState({});
+    const [showKey, setShowKey] = useState({});
+    const [msg, setMsg] = useState(null);
+
+    const load = () => apiFetch("/api/account/llm-keys").then(r => r.ok && setKeys(r.data));
+    useEffect(() => { load(); }, []);
+
+    async function save(provider) {
+      const val = (editing[provider] || "").trim();
+      if (!val) return;
+      setSaving(p => ({ ...p, [provider]: true }));
+      const r = await apiFetch(`/api/account/llm-keys/${provider}`, "PUT", { key: val });
+      setSaving(p => ({ ...p, [provider]: false }));
+      if (r.ok) {
+        setEditing(p => ({ ...p, [provider]: "" }));
+        setMsg("Key saved.");
+        load();
+        setTimeout(() => setMsg(null), 2000);
+      }
+    }
+
+    async function remove(provider) {
+      if (!window.confirm(`Remove your ${provider} key? LLM features requiring it will stop working.`)) return;
+      await apiFetch(`/api/account/llm-keys/${provider}`, "DELETE");
+      load();
+    }
+
+    return (
+      <div className="auth-section">
+        <h3>LLM Keys</h3>
+        <p className="auth-section-desc">
+          Your keys are encrypted and stored per-account. They're used only for your requests — never shared.
+          The server has no keys; LLM features are unavailable until you add yours.
+        </p>
+        {msg && <p className="auth-success" role="status">{msg}</p>}
+        {PROVIDERS.map(({ id, label, placeholder, hint }) => (
+          <div key={id} className="llm-key-row">
+            <div className="llm-key-header">
+              <span className="llm-key-label">{label}</span>
+              {keys[id]?.set
+                ? <span className="llm-key-badge llm-key-badge--set">✓ Key set</span>
+                : <span className="llm-key-badge llm-key-badge--missing">Not set</span>}
+            </div>
+            <p className="auth-meta" style={{ margin: "2px 0 var(--space-2)" }}>{hint}</p>
+            <div className="llm-key-input-row">
+              <div className="auth-input-wrap" style={{ flex: 1 }}>
+                <input
+                  type={showKey[id] ? "text" : "password"}
+                  value={editing[id] || ""}
+                  onChange={e => setEditing(p => ({ ...p, [id]: e.target.value }))}
+                  placeholder={keys[id]?.set ? "Enter new key to replace" : placeholder}
+                  autoComplete="off"
+                  style={{ width: "100%" }}
+                />
+                <button type="button" className="auth-pw-toggle"
+                  onClick={() => setShowKey(p => ({ ...p, [id]: !p[id] }))}
+                  aria-label={showKey[id] ? "Hide key" : "Show key"}>
+                  {showKey[id]
+                    ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  }
+                </button>
+              </div>
+              <button className="auth-submit auth-submit--sm"
+                onClick={() => save(id)} disabled={saving[id] || !editing[id]}>
+                {saving[id] ? "Saving…" : "Save"}
+              </button>
+              {keys[id]?.set && (
+                <button className="auth-revoke" onClick={() => remove(id)}>Remove</button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+
   function Tokens() {
     const [tokens, setTokens] = useState([]);
     const [name, setName] = useState("");
@@ -387,6 +474,7 @@
         </section>
 
         {/* 2 ── API Tokens */}
+        <LLMKeys />
         <Tokens />
 
         {/* 3 ── Danger zone */}

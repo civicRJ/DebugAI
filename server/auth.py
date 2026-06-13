@@ -23,9 +23,35 @@ import threading
 import time
 from pathlib import Path
 
+import base64
+
+from cryptography.fernet import Fernet
 from sqlalchemy import text
 
 from server.db import get_engine
+
+
+def _fernet() -> Fernet:
+    """Return a Fernet cipher keyed from DEBUGAI_KEY_SECRET.
+    If unset, derives a deterministic dev key from the DB path — never use in
+    production without setting the env var."""
+    secret = os.environ.get("DEBUGAI_KEY_SECRET")
+    if secret:
+        key = base64.urlsafe_b64encode(secret.encode("utf-8").ljust(32, b"\0")[:32])
+    else:
+        import hashlib
+        h = hashlib.sha256(b"debugai-dev-insecure-key-change-in-prod").digest()
+        key = base64.urlsafe_b64encode(h)
+    return Fernet(key)
+
+
+def _encrypt(value: str) -> str:
+    return _fernet().encrypt(value.encode("utf-8")).decode("ascii")
+
+
+def _decrypt(token: str) -> str:
+    return _fernet().decrypt(token.encode("ascii")).decode("utf-8")
+
 
 _SESSION_TTL = 30 * 24 * 3600  # 30 days
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -82,6 +108,15 @@ class AuthStore:
                     token_hash TEXT UNIQUE NOT NULL,
                     created_at REAL NOT NULL,
                     last_used REAL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_keys (
+                    user_id  TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    key_enc  TEXT NOT NULL,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (user_id, provider)
                 )
             """))
 
@@ -237,9 +272,53 @@ class AuthStore:
                               {"now": time.time(), "h": h})
         return self._public(row) if row else None
 
+    # ── Per-user LLM API keys (encrypted at rest) ────────────────────────────
+    SUPPORTED_PROVIDERS = ("openai", "anthropic")
+
+    def set_user_key(self, user_id: str, provider: str, api_key: str) -> None:
+        """Encrypt and store a user's API key for the given provider."""
+        if provider not in self.SUPPORTED_PROVIDERS:
+            raise AuthError(f"Unsupported provider: {provider}")
+        enc = _encrypt(api_key.strip())
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO user_keys (user_id, provider, key_enc, updated_at)
+                VALUES (:uid, :prov, :enc, :now)
+                ON CONFLICT (user_id, provider) DO UPDATE
+                    SET key_enc=excluded.key_enc, updated_at=excluded.updated_at
+            """), {"uid": user_id, "prov": provider, "enc": enc, "now": time.time()})
+
+    def get_user_key(self, user_id: str, provider: str) -> str | None:
+        """Return the decrypted API key, or None if not set."""
+        with self._engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT key_enc FROM user_keys WHERE user_id=:uid AND provider=:prov"),
+                {"uid": user_id, "prov": provider}).fetchone()
+        if row is None:
+            return None
+        try:
+            return _decrypt(row.key_enc)
+        except Exception:
+            return None
+
+    def get_user_keys(self, user_id: str) -> dict:
+        """Return metadata (provider → {set, updated_at}) — never the key itself."""
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT provider, updated_at FROM user_keys WHERE user_id=:uid"),
+                {"uid": user_id}).fetchall()
+        return {r.provider: {"set": True, "updated_at": r.updated_at} for r in rows}
+
+    def delete_user_key(self, user_id: str, provider: str) -> None:
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text(
+                "DELETE FROM user_keys WHERE user_id=:uid AND provider=:prov"),
+                {"uid": user_id, "prov": provider})
+
     def clear(self) -> None:
-        """Test helper — wipe all users, sessions, and tokens."""
+        """Test helper — wipe all users, sessions, tokens, and keys."""
         with self._lock, self._engine.begin() as conn:
             conn.execute(text("DELETE FROM sessions"))
             conn.execute(text("DELETE FROM api_tokens"))
+            conn.execute(text("DELETE FROM user_keys"))
             conn.execute(text("DELETE FROM users"))

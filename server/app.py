@@ -270,7 +270,10 @@ def _run(req: AnalyzeRequest, owner: str, judge: bool = False) -> dict:
     # result back so the baseline keeps learning (§7.2). The instruction-adherence
     # judge (an LLM call) runs only when explicitly requested — i.e. the "Debug a
     # bug" workbench — never on routine /api/analyze or seeding.
+    # Keys are always the user's own — never the server's env keys.
     tstore = tstore_for(owner)
+    user_openai_key = auth_store.get_user_key(owner, "openai")
+    user_anthropic_key = auth_store.get_user_key(owner, "anthropic")
     diagnosis = analyze(
         prompt=req.prompt,
         output=req.output,
@@ -286,6 +289,8 @@ def _run(req: AnalyzeRequest, owner: str, judge: bool = False) -> dict:
         explain_with_llm=req.explain_with_llm,
         thresholds=tstore.current(),
         judge=judge and bool((req.system_prompt or "").strip()),
+        openai_api_key=user_openai_key,
+        anthropic_api_key=user_anthropic_key,
     )
     tstore.record(diagnosis["signals"], diagnosis["healthy"])
     rec = store.add(_record(req.model_dump(), diagnosis, owner))
@@ -578,6 +583,8 @@ def api_playground(req: DebugRequest, user: dict = Depends(require_user)):
             max_tokens=req.max_tokens, context_window=req.context_window,
             model_name=req.model_name, explain_with_llm=req.explain_with_llm,
             thresholds=tstore_for(user["id"]).current(),
+            openai_api_key=auth_store.get_user_key(user["id"], "openai"),
+            anthropic_api_key=auth_store.get_user_key(user["id"], "anthropic"),
             # No judge here: the playground auto-analyzes on every keystroke, so an
             # LLM judge call per keystroke would be wasteful. Judge runs only in
             # the "Debug a bug" workbench (/api/debug).
@@ -607,6 +614,32 @@ def _seed_for(owner: str) -> int:
                              **kwargs)
         _run(req, owner)
     return len(cases)
+
+
+class LLMKeyIn(BaseModel):
+    key: str = Field(max_length=500)
+
+
+@app.put("/api/account/llm-keys/{provider}")
+def api_set_llm_key(provider: str, body: LLMKeyIn, user: dict = Depends(require_user)):
+    """Save an encrypted LLM API key (openai or anthropic) for the user."""
+    try:
+        auth_store.set_user_key(user["id"], provider, body.key)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "provider": provider}
+
+
+@app.delete("/api/account/llm-keys/{provider}")
+def api_delete_llm_key(provider: str, user: dict = Depends(require_user)):
+    auth_store.delete_user_key(user["id"], provider)
+    return {"ok": True}
+
+
+@app.get("/api/account/llm-keys")
+def api_get_llm_keys(user: dict = Depends(require_user)):
+    """Return which providers the user has keys set (never the key itself)."""
+    return auth_store.get_user_keys(user["id"])
 
 
 @app.post("/api/seed")

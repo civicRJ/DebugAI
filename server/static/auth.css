@@ -320,6 +320,17 @@ html, body { margin: 0; background: var(--bg-base); color: var(--text-primary); 
 .auth-confirm-input:focus { outline: none; border-color: var(--critical-base); box-shadow: 0 0 0 2px rgba(240,86,61,0.25); }
 .auth-confirm-actions { display: flex; gap: var(--space-2); }
 
+/* ── LLM Keys ── */
+.llm-key-row { padding: var(--space-4) 0; border-bottom: 1px solid var(--border-faint); }
+.llm-key-row:last-child { border-bottom: none; }
+.llm-key-header { display: flex; align-items: center; gap: var(--space-3); margin-bottom: 2px; }
+.llm-key-label { font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.llm-key-badge { font-size: var(--text-2xs); font-family: var(--font-mono); padding: 2px 8px; border-radius: var(--radius-full); }
+.llm-key-badge--set { background: var(--ok-muted); color: var(--ok-bright); border: 1px solid var(--ok-base); }
+.llm-key-badge--missing { background: var(--bg-sunken); color: var(--text-tertiary); border: 1px solid var(--border-subtle); }
+.llm-key-input-row { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.llm-key-input-row .auth-input-wrap input { min-height: 40px; font-family: var(--font-mono); font-size: var(--text-xs); }
+
 /* ── Responsive ── */
 @media (max-width: 480px) {
   .auth-card { padding: var(--space-6); }

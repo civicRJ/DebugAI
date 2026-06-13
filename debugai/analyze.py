@@ -79,6 +79,8 @@ def analyze(
     lazy: bool = False,
     judge: bool = False,
     judge_model: str | None = None,
+    openai_api_key: str | None = None,
+    anthropic_api_key: str | None = None,
     variance_rerun: Any = None,
     variance_runs: int = 3,
 ) -> dict[str, Any]:
@@ -118,12 +120,12 @@ def analyze(
     # failures the grounding signals can't see (e.g. a tutor revealing the answer).
     if judge and rec.system_prompt:
         jd = judge_instructions(rec.system_prompt, rec.user_prompt, rec.llm_output,
-                                model=judge_model)
+                                model=judge_model, api_key=openai_api_key)
         if not jd.healthy:
             result = _merge_instruction(result, jd)
 
     if explain_with_llm:
-        explanation = explain(diag)
+        explanation = explain(diag, api_key=anthropic_api_key)
         result["explainer_model"] = explanation["model"]
         # Prefer the deterministic primary's own root_cause when the judge changed
         # the primary; otherwise use the LLM explanation.

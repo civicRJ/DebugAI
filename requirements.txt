@@ -20,5 +20,8 @@ uvicorn[standard]>=0.29
 psycopg2-binary>=2.9
 sqlalchemy>=2.0
 
+# Per-user API key encryption
+cryptography>=42.0
+
 # Dev / test
 pytest>=8.0

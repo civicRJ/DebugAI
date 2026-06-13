@@ -55,17 +55,20 @@ class InstructionDiagnosis:
 # Public entry point
 # --------------------------------------------------------------------------- #
 def judge_instructions(system_prompt: str, user_prompt: str, output: str,
-                       model: str | None = None) -> InstructionDiagnosis:
+                       model: str | None = None,
+                       api_key: str | None = None) -> InstructionDiagnosis:
     """Evaluate an assistant ``output`` against the rules in its ``system_prompt``.
 
-    Uses the OpenAI judge when ``OPENAI_API_KEY`` is set; otherwise a deterministic
-    heuristic check. Returns the violations found (empty → healthy)."""
+    Uses the OpenAI judge when an api_key is provided (or OPENAI_API_KEY env is
+    set as a fallback); otherwise uses the deterministic heuristic check."""
     if not (system_prompt or "").strip():
         return InstructionDiagnosis(healthy=True, confidence=0.0, model="n/a")
     model = model or DEFAULT_JUDGE_MODEL
-    if os.environ.get("OPENAI_API_KEY"):
+    effective_key = api_key or os.environ.get("OPENAI_API_KEY")
+    if effective_key:
         try:
-            return _openai_judge(system_prompt, user_prompt, output, model)
+            return _openai_judge(system_prompt, user_prompt, output, model,
+                                 api_key=effective_key)
         except Exception as e:  # pragma: no cover - network dependent
             log.warning("OpenAI judge failed (%s); using heuristic fallback", e)
     return _heuristic_judge(system_prompt, user_prompt, output)
@@ -88,10 +91,11 @@ _JUDGE_SYSTEM = (
 
 
 def _openai_judge(system_prompt: str, user_prompt: str, output: str,
-                  model: str) -> InstructionDiagnosis:
+                  model: str, api_key: str | None = None) -> InstructionDiagnosis:
     from openai import OpenAI
 
-    client = OpenAI(timeout=30.0, max_retries=2)
+    client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+                    timeout=30.0, max_retries=2)
     payload = (
         f"SYSTEM PROMPT (rules):\n{system_prompt}\n\n"
         f"STUDENT MESSAGE:\n{user_prompt}\n\n"

@@ -13,12 +13,19 @@ look healthy and ``lazy=True``.
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 from dataclasses import asdict, dataclass
 
 from debugai import models
 from debugai.schema import CaptureRecord
+
+log = logging.getLogger("debugai.signals")
+
+
+def _finite(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
 _WORD_RE = re.compile(r"[A-Za-z0-9']+")
 # Fallback "entity" heuristic: capitalised tokens, numbers, and units/currency.
@@ -84,26 +91,33 @@ def compute_overlap(output: str, context: str) -> tuple[float, str]:
     if embed is None:
         return round(jaccard, 4), "token-jaccard"  # fallback (§4.1)
 
-    import numpy as np
+    try:
+        import numpy as np
 
-    vecs = embed.encode([output, context], normalize_embeddings=True)
-    cosine = float(np.clip(np.dot(vecs[0], vecs[1]), 0.0, 1.0))
-    score = 0.35 * jaccard + 0.65 * cosine
-    return round(score, 4), "hybrid"
+        vecs = embed.encode([output, context], normalize_embeddings=True)
+        cosine = float(np.clip(np.dot(vecs[0], vecs[1]), 0.0, 1.0))
+        score = 0.35 * jaccard + 0.65 * cosine
+        return round(score, 4), "hybrid"
+    except Exception as e:  # model inference failed → degrade to token overlap
+        log.warning("overlap embedding failed (%s); using token Jaccard", e)
+        return round(jaccard, 4), "token-jaccard"
 
 
 # --------------------------------------------------------------------------- #
 # Signal 2 — Entity coverage (spaCy NER + regex fallback)
 # --------------------------------------------------------------------------- #
 def _extract_entities(text: str) -> set[str]:
+    text = text if isinstance(text, str) else ("" if text is None else str(text))
     nlp = models.ner()
     if nlp is not None:
-        doc = nlp(text or "")
-        ents = {e.text.lower() for e in doc.ents}
-        if ents:
-            return ents
-        # spaCy found nothing → fall through to regex so we still get signal.
-    return {m.group(1).lower() for m in _ENTITY_RE.finditer(text or "")}
+        try:
+            ents = {e.text.lower() for e in nlp(text).ents}
+            if ents:
+                return ents
+            # spaCy found nothing → fall through to regex so we still get signal.
+        except Exception as e:
+            log.warning("spaCy NER failed (%s); using regex fallback", e)
+    return {m.group(1).lower() for m in _ENTITY_RE.finditer(text)}
 
 
 def compute_entity_coverage(output: str, context: str) -> tuple[float, int, int]:
@@ -121,17 +135,22 @@ def compute_entity_coverage(output: str, context: str) -> tuple[float, int, int]
 # Signal 3 — Similarity (mean retrieval cosine)
 # --------------------------------------------------------------------------- #
 def compute_similarity(rec: CaptureRecord) -> float:
-    if rec.similarity_scores:
-        return round(sum(rec.similarity_scores) / len(rec.similarity_scores), 4)
-    # No scores from the vector store. If we have a query + chunks, compute them.
+    # Trust only finite numeric scores (a client may pass None/strings/NaN).
+    numeric = [float(s) for s in (rec.similarity_scores or []) if _finite(s)]
+    if numeric:
+        return round(sum(numeric) / len(numeric), 4)
+    # No usable scores. If we have a query + chunks, compute the cosine ourselves.
     embed = models.embedder()
     if embed is not None and rec.retrieval_query and rec.retrieved_chunks:
-        import numpy as np
+        try:
+            import numpy as np
 
-        q = embed.encode(rec.retrieval_query, normalize_embeddings=True)
-        cs = embed.encode(rec.retrieved_chunks, normalize_embeddings=True)
-        sims = np.clip(cs @ q, 0.0, 1.0)
-        return round(float(sims.mean()), 4)
+            q = embed.encode(rec.retrieval_query, normalize_embeddings=True)
+            cs = embed.encode(rec.retrieved_chunks, normalize_embeddings=True)
+            sims = np.clip(cs @ q, 0.0, 1.0)
+            return round(float(sims.mean()), 4)
+        except Exception as e:
+            log.warning("similarity recompute failed (%s); treating as healthy", e)
     return 1.0  # non-RAG request → retrieval not applicable, treat as healthy
 
 
@@ -145,14 +164,19 @@ def compute_contradiction(output: str, chunks: list[str]) -> float:
     if model is None:
         return 0.0  # fallback: no NLI available
 
-    import numpy as np
+    try:
+        import numpy as np
 
-    pairs = [(c, output) for c in chunks]  # (premise=chunk, hypothesis=output)
-    logits = np.atleast_2d(model.predict(pairs))
-    # cross-encoder/nli-MiniLM2 label order: [contradiction, entailment, neutral]
-    exp = np.exp(logits - logits.max(axis=1, keepdims=True))
-    probs = exp / exp.sum(axis=1, keepdims=True)
-    return round(float(probs[:, 0].max()), 4)
+        pairs = [(c, output) for c in chunks]  # (premise=chunk, hypothesis=output)
+        logits = np.atleast_2d(model.predict(pairs))
+        if logits.shape[1] < 3:   # unexpected label layout → can't read contradiction
+            return 0.0
+        exp = np.exp(logits - logits.max(axis=1, keepdims=True))
+        probs = exp / exp.sum(axis=1, keepdims=True)
+        return round(float(probs[:, 0].max()), 4)  # label 0 = contradiction
+    except Exception as e:
+        log.warning("NLI contradiction failed (%s); defaulting to 0.0", e)
+        return 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -160,8 +184,8 @@ def compute_contradiction(output: str, chunks: list[str]) -> float:
 # --------------------------------------------------------------------------- #
 def estimate_variance(rec: CaptureRecord) -> tuple[float, str]:
     temp = rec.temperature
-    if temp is None:
-        return 0.0, "estimated"  # single deterministic request assumption
+    if not _finite(temp):
+        return 0.0, "estimated"  # no/invalid temperature → assume deterministic
     # Base scales with sampling temperature (temp 1.5 ≈ full variance).
     base = max(0.0, min(temp / 1.5, 1.0))
     # Output-format / grounding constraints reduce realised variance.

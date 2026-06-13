@@ -341,6 +341,12 @@ def api_diagnoses(failure: str | None = None,
     return {"items": store.list(owner=user["id"], failure=failure, limit=limit)}
 
 
+@app.get("/api/health")
+def api_health():
+    """Liveness/readiness probe (no auth) — used by Docker HEALTHCHECK / LBs."""
+    return {"status": "ok"}
+
+
 @app.get("/api/stats")
 def api_stats(user: dict = Depends(require_user)):
     _ensure_seeded(user["id"])
@@ -423,7 +429,7 @@ def _grounded_stub(system_prompt, user_prompt, chunks, temperature):
 def _claude_rerun(model: str = "claude-haiku-4-5-20251001"):
     import anthropic
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(timeout=30.0, max_retries=2)
 
     def rerun(system_prompt, user_prompt, chunks, temperature):
         ctx = "\n\n".join(f"[chunk {i}] {c}" for i, c in enumerate(chunks))
@@ -442,7 +448,7 @@ def _openai_rerun(model: str | None = None):
     model = model or os.environ.get("DEBUGAI_JUDGE_MODEL", "gpt-5.5")
     from openai import OpenAI
 
-    client = OpenAI()
+    client = OpenAI(timeout=30.0, max_retries=2)
 
     def rerun(system_prompt, user_prompt, chunks, temperature):
         ctx = "\n\n".join(f"[chunk {i}] {c}" for i, c in enumerate(chunks))
@@ -569,7 +575,11 @@ def _seed_for(owner: str) -> int:
 @app.post("/api/seed")
 def api_seed(user: dict = Depends(require_user)):
     """(Re)seed the signed-in account with the labeled sample dataset."""
-    return {"seeded": _seed_for(user["id"])}
+    try:
+        return {"seeded": _seed_for(user["id"])}
+    except Exception:
+        log.exception("seed failed")
+        raise HTTPException(status_code=500, detail="seeding failed")
 
 
 # --- static: design system + dashboard ---
@@ -578,7 +588,10 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 def _page(name: str) -> FileResponse:
-    return FileResponse(STATIC_DIR / name)
+    # no-store so the browser never serves a gated page from cache without
+    # re-hitting the auth gate (otherwise a logged-out user clicking "Dashboard"
+    # could see a cached, seemingly-logged-in page).
+    return FileResponse(STATIC_DIR / name, headers={"Cache-Control": "no-store"})
 
 
 def _gated(request: Request, name: str):

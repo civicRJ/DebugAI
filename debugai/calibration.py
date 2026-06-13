@@ -105,9 +105,11 @@ class ThresholdStore:
     def _load(self) -> None:
         try:
             data = json.loads(self._path.read_text())
-            self._total = data.get("total", 0)
-            self._healthy = data.get("healthy", [])[-self._window:]
-        except (FileNotFoundError, json.JSONDecodeError):
+            if isinstance(data, dict):
+                self._total = int(data.get("total", 0) or 0)
+                healthy = data.get("healthy", [])
+                self._healthy = healthy[-self._window:] if isinstance(healthy, list) else []
+        except Exception:  # missing / corrupt / unreadable → cold start
             pass
 
     def _persist(self) -> None:

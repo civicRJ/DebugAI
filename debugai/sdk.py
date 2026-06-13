@@ -83,6 +83,25 @@ class _Captured:
     max_tokens: int | None = None
 
 
+def _msg_text(content) -> str:
+    """Coerce a chat message's `content` (str, None, or a list of content parts)
+    to plain text — the modern SDKs allow list/None, which would otherwise break
+    the wrapper before the real LLM call runs."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        out = []
+        for part in content:
+            if isinstance(part, dict):
+                out.append(part.get("text") or part.get("content") or "")
+            elif isinstance(part, str):
+                out.append(part)
+        return " ".join(p for p in out if p)
+    return str(content)
+
+
 class _OpenAIAdapter:
     create_path = ("chat", "completions", "create")
 
@@ -95,10 +114,8 @@ class _OpenAIAdapter:
     @staticmethod
     def from_request(kwargs: dict) -> _Captured:
         msgs = kwargs.get("messages", []) or []
-        system = " ".join(m.get("content", "") for m in msgs if m.get("role") == "system")
-        user = " ".join(
-            m.get("content", "") for m in msgs if m.get("role") == "user"
-        )
+        system = " ".join(_msg_text(m.get("content")) for m in msgs if m.get("role") == "system")
+        user = " ".join(_msg_text(m.get("content")) for m in msgs if m.get("role") == "user")
         return _Captured(
             system_prompt=system,
             user_prompt=user,
@@ -137,18 +154,10 @@ class _AnthropicAdapter:
     def from_request(kwargs: dict) -> _Captured:
         system = kwargs.get("system", "") or ""
         msgs = kwargs.get("messages", []) or []
-        parts = []
-        for m in msgs:
-            if m.get("role") != "user":
-                continue
-            content = m.get("content", "")
-            if isinstance(content, list):  # block format
-                parts.extend(b.get("text", "") for b in content if isinstance(b, dict))
-            else:
-                parts.append(content)
+        user = " ".join(_msg_text(m.get("content")) for m in msgs if m.get("role") == "user")
         return _Captured(
-            system_prompt=system,
-            user_prompt=" ".join(parts),
+            system_prompt=system if isinstance(system, str) else _msg_text(system),
+            user_prompt=user,
             model_name=kwargs.get("model"),
             temperature=kwargs.get("temperature"),
             max_tokens=kwargs.get("max_tokens"),

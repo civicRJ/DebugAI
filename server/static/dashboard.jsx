@@ -517,6 +517,10 @@
             ))}
             <a className="view-tab" href="/playground">playground ↗</a>
             <a className="view-tab" href="/account" title="Account">account ↗</a>
+            <button className="view-tab" onClick={async () => {
+              await fetch("/api/auth/logout", { method: "POST" });
+              window.location.href = "/login";
+            }}>log out</button>
           </div>
         </div>
 

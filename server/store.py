@@ -36,8 +36,9 @@ class DiagnosisStore:
 
     def _load(self) -> list[dict]:
         try:
-            return json.loads(self._path.read_text())[-self._max:]
-        except (FileNotFoundError, json.JSONDecodeError):
+            data = json.loads(self._path.read_text())
+            return data[-self._max:] if isinstance(data, list) else []
+        except Exception:  # missing / corrupt / unreadable → start clean
             return []
 
     def _persist(self) -> None:
@@ -117,8 +118,9 @@ class TraceStore:
 
     def _load(self) -> list[dict]:
         try:
-            return json.loads(self._path.read_text())[-self._max:]
-        except (FileNotFoundError, json.JSONDecodeError):
+            data = json.loads(self._path.read_text())
+            return data[-self._max:] if isinstance(data, list) else []
+        except Exception:  # missing / corrupt / unreadable → start clean
             return []
 
     def _persist(self) -> None:

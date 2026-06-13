@@ -186,6 +186,17 @@ def test_errors_do_not_leak_internals(client):
         assert r.json()["detail"] == "analysis failed"
 
 
+def test_health_endpoint_is_public(client):
+    r = client.get("/api/health")
+    assert r.status_code == 200 and r.json()["status"] == "ok"
+
+
+def test_gated_pages_are_no_store(client):
+    # client fixture is authenticated → dashboard served with no-store so the
+    # browser can't show a cached page after logout.
+    assert client.get("/dashboard").headers.get("cache-control") == "no-store"
+
+
 def test_security_headers_present(client):
     h = client.get("/").headers
     assert h["X-Content-Type-Options"] == "nosniff"

@@ -91,7 +91,7 @@ def _openai_judge(system_prompt: str, user_prompt: str, output: str,
                   model: str) -> InstructionDiagnosis:
     from openai import OpenAI
 
-    client = OpenAI()
+    client = OpenAI(timeout=30.0, max_retries=2)
     payload = (
         f"SYSTEM PROMPT (rules):\n{system_prompt}\n\n"
         f"STUDENT MESSAGE:\n{user_prompt}\n\n"
@@ -124,7 +124,8 @@ def _sentences(text: str) -> list[str]:
 
 
 def _jaccard(a: str, b: str) -> float:
-    sa, sb = {w.lower() for w in _WORD_RE.findall(a)}, {w.lower() for w in _WORD_RE.findall(b)}
+    sa = {w.lower() for w in _WORD_RE.findall(a or "")}
+    sb = {w.lower() for w in _WORD_RE.findall(b or "")}
     return len(sa & sb) / len(sa | sb) if (sa or sb) else 0.0
 
 

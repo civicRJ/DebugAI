@@ -57,7 +57,7 @@ def _client():
     try:
         import anthropic
 
-        return anthropic.Anthropic()
+        return anthropic.Anthropic(timeout=30.0, max_retries=2)
     except Exception as e:  # pragma: no cover - environment dependent
         log.warning("Anthropic client unavailable (%s); using deterministic explain", e)
         return None

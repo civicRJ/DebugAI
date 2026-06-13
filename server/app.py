@@ -254,9 +254,11 @@ def _record(req_dict: dict, diagnosis: dict, owner: str) -> dict:
     }
 
 
-def _run(req: AnalyzeRequest, owner: str) -> dict:
+def _run(req: AnalyzeRequest, owner: str, judge: bool = False) -> dict:
     # Adaptive: diagnose with this user's calibrated thresholds, then feed the
-    # result back so the baseline keeps learning (§7.2).
+    # result back so the baseline keeps learning (§7.2). The instruction-adherence
+    # judge (an LLM call) runs only when explicitly requested — i.e. the "Debug a
+    # bug" workbench — never on routine /api/analyze or seeding.
     tstore = tstore_for(owner)
     diagnosis = analyze(
         prompt=req.prompt,
@@ -272,7 +274,7 @@ def _run(req: AnalyzeRequest, owner: str) -> dict:
         model_name=req.model_name,
         explain_with_llm=req.explain_with_llm,
         thresholds=tstore.current(),
-        judge=bool((req.system_prompt or "").strip()),
+        judge=judge and bool((req.system_prompt or "").strip()),
     )
     tstore.record(diagnosis["signals"], diagnosis["healthy"])
     rec = store.add(_record(req.model_dump(), diagnosis, owner))
@@ -511,7 +513,7 @@ def api_debug(req: DebugRequest, user: dict = Depends(require_user)):
     if req.session_id is None:
         req.session_id = "debug-workbench"
     try:
-        rec = _run(req, user["id"])
+        rec = _run(req, user["id"], judge=True)  # judge runs ONLY here (Debug a bug)
     except Exception:
         log.exception("debug failed")
         raise HTTPException(status_code=400, detail="diagnosis failed")
@@ -532,7 +534,9 @@ def api_playground(req: DebugRequest, user: dict = Depends(require_user)):
             max_tokens=req.max_tokens, context_window=req.context_window,
             model_name=req.model_name, explain_with_llm=req.explain_with_llm,
             thresholds=tstore_for(user["id"]).current(),
-            judge=bool((req.system_prompt or "").strip()),
+            # No judge here: the playground auto-analyzes on every keystroke, so an
+            # LLM judge call per keystroke would be wasteful. Judge runs only in
+            # the "Debug a bug" workbench (/api/debug).
         )
     except Exception:
         log.exception("playground analyze failed")

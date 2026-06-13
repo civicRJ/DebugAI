@@ -47,8 +47,9 @@
       "id": "ev-co-01", "expected": "context_overflow",
       "prompt": "Based on the entire manual, what is the recommended maintenance interval?",
       "output": "The manual recommends servicing every 10,000 km or twelve months, whichever comes first.",
-      "chunks": ["The maintenance manual documents procedures for the engine, transmission, braking system, electrical wiring, climate control, suspension geometry, tyre rotation schedule, fluid specifications, torque values, diagnostic codes, and a long troubleshooting appendix that repeats for every trim level across hundreds of pages of dense technical prose filling the window."],
-      "similarity_scores": [0.76], "temperature": 0.2, "context_window": 150, "max_tokens": 4096, "latency_ms": 3400
+      "chunks": ["The maintenance manual documents procedures for the engine, transmission, braking system, electrical wiring, climate control, suspension geometry, tyre rotation schedule, fluid specifications, torque values, diagnostic codes, and a long troubleshooting appendix that repeats for every trim level across hundreds of pages of dense technical prose filling the window. The recommended maintenance interval is every 10,000 km or twelve months, whichever comes first."],
+      "similarity_scores": [0.76], "temperature": 0.2, "context_window": 150, "max_tokens": 4096, "latency_ms": 3400,
+      "token_usage": {"prompt": 140}
     },
     {
       "id": "ev-eg-01", "expected": "entity_gap",

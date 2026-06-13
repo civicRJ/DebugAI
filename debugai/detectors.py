@@ -146,6 +146,10 @@ def detect_hallucination(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> 
             score += 0.20
         if t.overlap_very_low <= s.overlap <= 0.70:
             score += 0.10
+        # High overlap (≥ 0.70) means the output largely repeats the context —
+        # strong grounding evidence that weighs against hallucination.
+        if s.overlap >= 0.70:
+            score -= 0.15
     fired = s.similarity >= t.similarity_min and score >= t.hallucination_fire
     return DetectorResult(
         failure=HALLUCINATION,

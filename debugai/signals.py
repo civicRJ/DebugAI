@@ -32,6 +32,16 @@ def _finite(x) -> bool:
 _WORD_RE = re.compile(r"[A-Za-z0-9']+")
 # Fallback "entity" heuristic: capitalised tokens, numbers, and units/currency.
 _ENTITY_RE = re.compile(r"\b([A-Z][A-Za-z0-9]+|\$?\d[\d,.]*%?)\b")
+# Common English function words that get capitalised at sentence starts but are
+# not named entities. Filtered from the regex fallback to prevent false positives.
+_GRAMMAR_WORDS: frozenset[str] = frozenset([
+    "the", "a", "an", "in", "on", "at", "of", "to", "for", "with", "by",
+    "from", "as", "is", "was", "are", "were", "be", "it", "its", "this",
+    "that", "these", "those", "he", "she", "we", "they", "i", "you",
+    "and", "or", "but", "so", "yet", "nor", "if", "then", "than",
+    "our", "my", "his", "her", "their", "your", "all", "any", "each",
+    "what", "when", "where", "which", "who", "how", "most", "more",
+])
 # Prompt-constraint markers that suppress output variance.
 _CONSTRAINT_RE = re.compile(
     r"\b(only|must|exactly|do not|don't|never|always|format|json|"
@@ -119,7 +129,8 @@ def _extract_entities(text: str) -> set[str]:
             # spaCy found nothing → fall through to regex so we still get signal.
         except Exception as e:
             log.warning("spaCy NER failed (%s); using regex fallback", e)
-    regex_ents = {m.group(1).lower() for m in _ENTITY_RE.finditer(text)}
+    regex_ents = {m.group(1).lower() for m in _ENTITY_RE.finditer(text)
+                  if m.group(1).lower() not in _GRAMMAR_WORDS}
     if regex_ents:
         return regex_ents
     return _llm_entities(text)  # Tier-3 (opt-in): LLM NER when nothing else matched

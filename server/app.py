@@ -336,9 +336,10 @@ def api_analyze(req: AnalyzeRequest, user: dict = Depends(require_user)):
 
 @app.get("/api/diagnoses")
 def api_diagnoses(failure: str | None = None,
+                  q: str | None = Query(None, max_length=200),
                   limit: int = Query(100, ge=1, le=500),
                   user: dict = Depends(require_user)):
-    return {"items": store.list(owner=user["id"], failure=failure, limit=limit)}
+    return {"items": store.list(owner=user["id"], failure=failure, q=q, limit=limit)}
 
 
 @app.get("/api/health")

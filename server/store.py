@@ -19,6 +19,15 @@ _DATA = data_path("diagnoses.json")
 _MAX = 500
 
 
+def _haystack(record: dict) -> str:
+    """Lower-cased searchable text for a diagnosis record."""
+    inp = record.get("input") or {}
+    primary = (record.get("diagnosis") or {}).get("primary") or {}
+    parts = [inp.get("prompt"), inp.get("output"), record.get("issue"),
+             record.get("label"), primary.get("failure")]
+    return " ".join(p for p in parts if p).lower()
+
+
 def _atomic_write(path: Path, text: str) -> None:
     """Write via a temp file + rename so a crash mid-write can't corrupt the
     store (a partial JSON file would otherwise be silently reset on load)."""
@@ -52,7 +61,7 @@ class DiagnosisStore:
         return record
 
     def list(self, owner: str | None = None, failure: str | None = None,
-             limit: int = 100) -> list[dict]:
+             q: str | None = None, limit: int = 100) -> list[dict]:
         with self._lock:
             items = list(reversed(self._items))
         if owner is not None:
@@ -65,6 +74,9 @@ class DiagnosisStore:
                     r for r in items
                     if (r["diagnosis"].get("primary") or {}).get("failure") == failure
                 ]
+        if q:
+            ql = q.lower()
+            items = [r for r in items if ql in _haystack(r)]
         return items[:limit]
 
     def get(self, diagnosis_id: str, owner: str | None = None) -> dict | None:

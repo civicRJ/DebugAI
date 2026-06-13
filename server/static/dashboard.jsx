@@ -51,7 +51,13 @@
     thresholds: () => dfetch("/api/thresholds"),
     fix: (id) => dfetch("/api/fix/" + id + "?simulate=true", { method: "POST" }),
     debug: (body) => dfetch("/api/debug", { method: "POST", body: JSON.stringify(body) }),
-    list: (failure) => dfetch("/api/diagnoses" + (failure ? "?failure=" + failure : "")),
+    list: (failure, q) => {
+      const p = new URLSearchParams();
+      if (failure) p.set("failure", failure);
+      if (q) p.set("q", q);
+      const qs = p.toString();
+      return dfetch("/api/diagnoses" + (qs ? "?" + qs : ""));
+    },
     analyze: (body) => dfetch("/api/analyze", { method: "POST", body: JSON.stringify(body) }),
     traces: () => dfetch("/api/traces"),
     sessions: () => dfetch("/api/sessions"),
@@ -60,6 +66,24 @@
 
   const fmtMs = (ms) => (ms >= 1000 ? (ms / 1000).toFixed(2) + "s" : Math.round(ms) + "ms");
   const fmtCost = (c) => "$" + (c || 0).toFixed(4);
+
+  // Tiny dependency-free SVG sparkline from an array of numbers.
+  function Sparkline({ values, label, color }) {
+    const v = (values || []).filter((x) => typeof x === "number" && isFinite(x));
+    if (v.length < 2) return null;
+    const W = 120, H = 28, max = Math.max(...v), min = Math.min(...v);
+    const span = max - min || 1;
+    const pts = v.map((y, i) =>
+      `${(i / (v.length - 1)) * W},${H - ((y - min) / span) * (H - 4) - 2}`).join(" ");
+    return (
+      <div className="spark">
+        <div className="spark__label">{label}</div>
+        <svg className="spark__svg" viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+          <polyline points={pts} fill="none" stroke={color || "var(--amber-base)"} strokeWidth="1.5" />
+        </svg>
+      </div>
+    );
+  }
 
   const REGIME_COPY = {
     cold: "using default thresholds — not enough data to calibrate",
@@ -348,7 +372,7 @@
   }
 
   // --- observability: metrics strip ----------------------------------------
-  function ObsMetrics({ data }) {
+  function ObsMetrics({ data, traces }) {
     if (!data) return null;
     const tiles = [
       { v: data.traces, l: "traces" },
@@ -359,9 +383,19 @@
       { v: (data.total_tokens || 0).toLocaleString(), l: "tokens" },
       { v: fmtCost(data.cost_usd), l: "est. cost" },
     ];
+    // traces come newest-first → reverse for chronological sparklines.
+    const chrono = [...(traces || [])].reverse();
+    const latency = chrono.map((t) => t.duration_ms || 0);
+    const tokens = chrono.map((t) => t.total_tokens || 0);
     return (
-      <div className="dash-stats" style={{ marginBottom: "var(--space-6)" }}>
-        {tiles.map((t, i) => <Stat key={i} value={t.v} label={t.l} kind={t.kind} />)}
+      <div style={{ marginBottom: "var(--space-6)" }}>
+        <div className="dash-stats">
+          {tiles.map((t, i) => <Stat key={i} value={t.v} label={t.l} kind={t.kind} />)}
+        </div>
+        <div className="spark-row">
+          <Sparkline values={latency} label="latency / trace" color="var(--trace-base)" />
+          <Sparkline values={tokens} label="tokens / trace" color="var(--amber-base)" />
+        </div>
       </div>
     );
   }
@@ -452,6 +486,7 @@
     const [thresholds, setThresholds] = useState(null);
     const [items, setItems] = useState([]);
     const [filter, setFilter] = useState(null);
+    const [query, setQuery] = useState("");
     const [view, setView] = useState("diagnoses");  // diagnoses | traces | sessions
     const [traces, setTraces] = useState([]);
     const [sessions, setSessions] = useState([]);
@@ -464,7 +499,7 @@
     const refresh = useCallback(async () => {
       try {
         const [s, t, l, tr, se, os] = await Promise.all([
-          api.stats(), api.thresholds(), api.list(filter),
+          api.stats(), api.thresholds(), api.list(filter, query),
           api.traces(), api.sessions(), api.obsStats(),
         ]);
         setStats(s);
@@ -481,7 +516,7 @@
       } finally {
         setLoading(false);
       }
-    }, [filter]);
+    }, [filter, query]);
 
     useEffect(() => { refresh(); }, [refresh]);
 
@@ -529,6 +564,8 @@
             <>
               <Filter id={null} label="all" />
               {FAILURE_ORDER.map((id) => <Filter key={id} id={id} label={LABELS[id]} />)}
+              <input className="dash-search" type="search" value={query}
+                placeholder="search…" onChange={(e) => setQuery(e.target.value)} />
             </>
           ) : (
             <span className="dash-sub" style={{ fontFamily: "var(--font-mono)" }}>
@@ -544,7 +581,7 @@
 
         {view === "diagnoses"
           ? <CalibrationStrip data={thresholds} />
-          : <ObsMetrics data={obsStats} />}
+          : <ObsMetrics data={obsStats} traces={traces} />}
 
         {showRun && <DebugPanel onResult={setResult} onDone={refresh} />}
 

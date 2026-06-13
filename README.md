@@ -280,6 +280,23 @@ failing case and get a one-shot diagnosis **and** verified fix:
 Both pages load React via CDN and the compiled design-system bundle from the `/ds`
 mount — the same pattern as the original template.
 
+### LangChain integration
+
+Drop the callback handler onto any LangChain run to auto-diagnose it — it
+captures the retrieved documents + the LLM prompt/output and runs `analyze()`:
+
+```python
+from debugai.integrations import DebugAICallbackHandler
+
+handler = DebugAICallbackHandler(on_diagnosis=lambda d: print(d["primary"]))
+chain.invoke(question, config={"callbacks": [handler]})
+print(handler.last)          # the most recent diagnosis
+```
+
+Importable with or without `langchain` installed; diagnosis failures never
+break the chain. (Without retriever scores it can't judge retrieval quality, but
+it still catches ungrounded answers — hallucination / entity gap.)
+
 ### Adaptive thresholds (§7.2)
 
 `debugai/calibration.py` provides a per-user `ThresholdStore` that learns a

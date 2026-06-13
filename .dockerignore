@@ -1,0 +1,19 @@
+.venv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.github/
+.claude/
+.env
+.env.*
+server/diagnoses.json
+server/traces.json
+server/thresholds_*.json
+server/debugai.db
+server/*.json.tmp
+debugai_architecture_v3.pdf
+# keep tests/dataset (the per-user seed reads failures.json) but drop the rest
+tests/test_*.py
+tests/conftest.py

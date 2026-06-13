@@ -16,7 +16,9 @@ import threading
 import time
 from pathlib import Path
 
-_DB = Path(__file__).with_name("debugai.db")
+from server.paths import data_path
+
+_DB = data_path("debugai.db")
 _SESSION_TTL = 30 * 24 * 3600  # 30 days
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 

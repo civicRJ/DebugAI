@@ -1,0 +1,18 @@
+services:
+  debugai:
+    build: .
+    image: debugai:latest
+    ports:
+      - "8000:8000"
+    # Secrets / config — create a .env (see .env.example). All optional:
+    # OPENAI_API_KEY, ANTHROPIC_API_KEY, DEBUGAI_JUDGE_MODEL, DEBUGAI_API_KEY,
+    # DEBUGAI_RATE_LIMIT, DEBUGAI_TRUST_PROXY.
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - debugai-data:/data        # persists diagnoses, traces, calibration, users
+    restart: unless-stopped
+
+volumes:
+  debugai-data:

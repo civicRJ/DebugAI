@@ -13,7 +13,9 @@ import threading
 from collections import Counter
 from pathlib import Path
 
-_DATA = Path(__file__).with_name("diagnoses.json")
+from server.paths import data_path
+
+_DATA = data_path("diagnoses.json")
 _MAX = 500
 
 
@@ -101,7 +103,7 @@ class DiagnosisStore:
             self._persist()
 
 
-_TRACES = Path(__file__).with_name("traces.json")
+_TRACES = data_path("traces.json")
 
 
 class TraceStore:

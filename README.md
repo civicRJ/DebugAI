@@ -151,6 +151,24 @@ data groups; retrieval is attached via the mechanisms above. Pass
 `explain_with_llm=True` to also run the Layer-3 explainer, `sample_rate` to
 diagnose a fraction of traffic, and `context_window` to enable capacity signals.
 
+## Deploy (Docker)
+
+```bash
+cp .env.example .env        # optional: add OPENAI_API_KEY / ANTHROPIC_API_KEY / hardening
+docker compose up --build   # → http://localhost:8000
+```
+
+- **Multi-stage image:** a Node stage builds the frontend bundles; the Python
+  runtime installs **CPU-only torch** and **bakes the signal models** in, so the
+  container runs fully offline (no model downloads at start). Expect a large
+  image (~2–3 GB) — it's an ML app.
+- **Persistence:** all state (diagnoses, traces, calibration, **user accounts**)
+  is written to `DEBUGAI_DATA_DIR` (`/data` in the image), mounted as the
+  `debugai-data` volume — survives restarts and rebuilds.
+- **TLS:** terminate at a reverse proxy (nginx/Caddy) or pass
+  `DEBUGAI_SSL_CERT`/`DEBUGAI_SSL_KEY`. Set `DEBUGAI_TRUST_PROXY=1` behind a proxy.
+- Config is via env (see `.env.example` and the **Security & robustness** table).
+
 ## Accounts & multi-tenancy
 
 The web app has full authentication — register, log in, manage your account —

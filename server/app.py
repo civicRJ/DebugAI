@@ -39,6 +39,7 @@ from debugai.calibration import ThresholdStore
 from debugai.schema import CaptureRecord
 from debugai.tracing import Span, Trace, scores_from_diagnosis, status_from_diagnosis
 from server.auth import AuthError, AuthStore
+from server.paths import data_path
 from server.security import install as install_security
 from server.store import DiagnosisStore, TraceStore
 from server.ui_adapter import to_card
@@ -64,7 +65,7 @@ def tstore_for(owner: str) -> ThresholdStore:
         ts = _tstores.get(owner)
         if ts is None:
             safe = "".join(c for c in owner if c.isalnum())[:24] or "anon"
-            ts = ThresholdStore(path=Path(__file__).with_name(f"thresholds_{safe}.json"))
+            ts = ThresholdStore(path=data_path(f"thresholds_{safe}.json"))
             _tstores[owner] = ts
         return ts
 

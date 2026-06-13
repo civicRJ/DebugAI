@@ -7,9 +7,8 @@
 <meta name="description" content="DebugAI turns every LLM call into a ranked, reproducible diagnosis — eight deterministic signals, five failure detectors, scored by confidence and shipped with a fix." />
 
 <!-- React UMD (pinned) must load before the DS bundle -->
-<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" crossorigin="anonymous"></script>
+<script src="/static/vendor/react.js"></script>
+<script src="/static/vendor/react-dom.js"></script>
 
 <!-- DebugAI design system + landing styles (served via the /ds mount) -->
 <link rel="stylesheet" href="/ds/styles.css" />
@@ -20,8 +19,8 @@
 <div id="root"><div style="padding:4rem;color:#757061;font-family:monospace">Loading DebugAI…</div></div>
 
 <!-- Landing sections (adapted, LLM-focused) — loaded from the design-system tree -->
-<script type="text/babel" src="/ds/templates/landing/sections-hero.jsx?v=4"></script>
-<script type="text/babel" src="/ds/templates/landing/sections-content.jsx?v=4"></script>
-<script type="text/babel" src="/ds/templates/landing/main.jsx?v=4"></script>
+<script src="/static/dist/sections-hero.js"></script>
+<script src="/static/dist/sections-content.js"></script>
+<script src="/static/dist/main.js"></script>
 </body>
 </html>

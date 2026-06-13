@@ -52,6 +52,20 @@ Set `ANTHROPIC_API_KEY` to enable the live LLM explainer and the fix-agent
 re-run; everything works without it (deterministic detection + a grounded-stub
 re-run for the demo).
 
+### Frontend build
+
+The UI is React, **pre-compiled with esbuild** (no in-browser Babel, no CDN —
+React is vendored locally, so pages load fast, work offline, and run under a
+strict `script-src 'self'` CSP). The built bundles (`server/static/dist/`) and
+vendored React (`server/static/vendor/`) are committed, so a plain
+`pip install` + run works with no Node. To rebuild after editing any `.jsx`:
+
+```bash
+npm install && npm run build     # → server/static/dist/*.js
+```
+
+`./run.sh` builds automatically if the bundles are missing.
+
 ### CLI
 
 Installs a `debugai` console command (`pip install -e .`):

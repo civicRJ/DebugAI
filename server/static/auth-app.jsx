@@ -221,10 +221,11 @@
 
   const VIEWS = { login: Login, register: Register, account: Account };
 
-  window.DebugAIAuth = function (mode) {
-    const View = VIEWS[mode] || Login;
-    ReactDOM.createRoot(document.getElementById("root")).render(
-      <div className="auth-wrap"><View /></div>
-    );
-  };
+  // Derive the view from the URL path (/login, /register, /account) — no inline
+  // script needed, so the page can run under a strict `script-src 'self'` CSP.
+  const seg = window.location.pathname.replace(/\/+$/, "").split("/").pop();
+  const View = VIEWS[seg] || Login;
+  ReactDOM.createRoot(document.getElementById("root")).render(
+    <div className="auth-wrap"><View /></div>
+  );
 })();

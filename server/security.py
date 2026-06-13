@@ -23,15 +23,18 @@ from starlette.responses import JSONResponse, Response
 _API_PREFIX = "/api"
 MAX_BODY_BYTES = 4 * 1024 * 1024  # 4 MB — reject oversized request bodies (DoS guard)
 
-# Restrictive headers. The CSP intentionally allows the unpkg CDN + inline/eval
-# because the dashboard transforms JSX in-browser via Babel standalone; it still
-# blocks framing, plugins, and base-tag hijacking.
+# Strict CSP: all scripts are self-hosted (vendored React + esbuild bundles, no
+# CDN, no in-browser Babel), so script-src needs no 'unsafe-eval'/'unsafe-inline'
+# or remote origins. style-src keeps 'unsafe-inline' for React inline style attrs;
+# Google Fonts (stylesheet + font files) are allowed (with system-font fallback
+# offline). Framing, plugins, and base-tag hijacking are blocked.
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://unpkg.com; "
-    "style-src 'self' 'unsafe-inline' https://unpkg.com; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "img-src 'self' data:; media-src 'self'; "
-    "connect-src 'self'; font-src 'self' data:; "
+    "connect-src 'self'; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
     "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
 )
 _HEADERS = {

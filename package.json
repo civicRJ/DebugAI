@@ -1,0 +1,14 @@
+{
+  "name": "debugai-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Frontend build for the DebugAI web app (esbuild, no runtime Babel).",
+  "scripts": {
+    "build": "node frontend/build.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

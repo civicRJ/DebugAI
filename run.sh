@@ -19,6 +19,17 @@ export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 #   DEBUGAI_SSL_CERT / DEBUGAI_SSL_KEY  serve HTTPS directly
 
 HOST="${HOST:-127.0.0.1}"
+
+# Build the frontend bundles if missing (vendored React + esbuild output).
+if [ ! -f server/static/dist/dashboard.js ]; then
+  if command -v npm >/dev/null 2>&1; then
+    echo "Building frontend (npm install && npm run build)…"
+    npm install --silent && npm run build
+  else
+    echo "WARN: server/static/dist is missing and npm is unavailable — run 'npm install && npm run build'." >&2
+  fi
+fi
+
 SSL_ARGS=()
 if [ -n "${DEBUGAI_SSL_CERT:-}" ] && [ -n "${DEBUGAI_SSL_KEY:-}" ]; then
   SSL_ARGS=(--ssl-certfile "$DEBUGAI_SSL_CERT" --ssl-keyfile "$DEBUGAI_SSL_KEY")

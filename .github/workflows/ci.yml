@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Cache ML model downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ hashFiles('requirements.txt') }}
+          restore-keys: hf-models-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          python -m spacy download en_core_web_sm
+
+      - name: Pre-download signal models (online; cached for the offline test run)
+        run: |
+          python - <<'PY'
+          from sentence_transformers import SentenceTransformer, CrossEncoder
+          SentenceTransformer("all-MiniLM-L6-v2")
+          CrossEncoder("cross-encoder/nli-MiniLM2-L6-H768")
+          print("models cached")
+          PY
+
+      - name: Run tests
+        env:
+          DEBUGAI_NO_SEED: "1"
+          TOKENIZERS_PARALLELISM: "false"
+        run: pytest -q

@@ -1,5 +1,8 @@
 # DebugAI
 
+[![CI](https://github.com/civicRJ/DebugAI/actions/workflows/ci.yml/badge.svg)](https://github.com/civicRJ/DebugAI/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg)](LICENSE)
+
 > Diagnose **why** LLM outputs fail and get the **exact fix** — reducing hours of trial-and-error debugging to seconds.
 
 DebugAI is a 3-layer root-cause engine for LLM applications (RAG systems,

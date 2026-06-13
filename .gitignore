@@ -6,6 +6,10 @@ __pycache__/
 *.egg-info/
 .DS_Store
 
+# Secrets + local env (never commit)
+.env
+.env.*
+
 # Local tooling + confidential design doc (not for publishing)
 .claude/
 debugai_architecture_v3.pdf

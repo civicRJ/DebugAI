@@ -7,6 +7,12 @@ PORT="${PORT:-8000}"
 PY=".venv/bin/python"
 [ -x "$PY" ] || PY="python3"
 
+# Load secrets from a local .env if present (gitignored — keys never get committed).
+if [ -f .env ]; then
+  set -a; . ./.env; set +a
+  echo "Loaded .env"
+fi
+
 # Use already-downloaded models; no network model checks.
 export HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}"
 export TRANSFORMERS_OFFLINE="${TRANSFORMERS_OFFLINE:-1}"

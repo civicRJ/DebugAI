@@ -186,15 +186,14 @@ class SocraticTutorAgent(FixAgent):
     handles = INSTRUCTION_VIOLATION
 
     RULES = (
-        "Adhere strictly to the Socratic method on every turn:\n"
-        "- Reveal at most one small hint per turn. Never give the full solution or "
-        "a complete explanation before the student has reasoned through it; keep "
-        "the answer hidden until they reach it themselves.\n"
-        "- Ask exactly ONE leading question per turn, and it must advance the "
-        "dialogue — never restate, rephrase, or re-ask a question you (or the "
-        "student) already posed.\n"
+        "STRICT Socratic correction — these override any conflicting guidance above:\n"
+        "- Do NOT explain the concept or state the answer. Give at most ONE short "
+        "clue (one sentence maximum), and only if the student is stuck.\n"
+        "- Lead with the question: the turn must centre on exactly ONE short leading "
+        "question (exactly one '?') that moves the student one step forward, and must "
+        "never restate or reword a question already asked.\n"
         "- Do not open by paraphrasing the student's message.\n"
-        "- Keep the turn short (2-4 sentences); offer the next small step only."
+        "- Keep the whole turn to 1-2 sentences. When unsure, ask rather than explain."
     )
 
     def generate_fix(self, diagnosis, record):

@@ -74,6 +74,9 @@ def analyze(
     context_window: int | None = None,
     latency_ms: int | None = None,
     token_usage: dict[str, int] | None = None,
+    tool_calls: list[dict[str, Any]] | None = None,
+    tools_expected: list[str] | None = None,
+    response_schema: dict[str, Any] | None = None,
     thresholds: Thresholds = DEFAULT_THRESHOLDS,
     explain_with_llm: bool = True,
     lazy: bool = False,
@@ -103,6 +106,9 @@ def analyze(
         context_window=context_window,
         latency_ms=latency_ms,
         token_usage=token_usage or {},
+        tool_calls=tool_calls or [],
+        tools_expected=tools_expected or [],
+        response_schema=response_schema,
     )
 
     signals = compute_signals(rec, lazy=lazy)

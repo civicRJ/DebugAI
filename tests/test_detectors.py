@@ -2,11 +2,15 @@
 and the worked example from the architecture doc reproduces."""
 
 from debugai.detectors import (
+    AMBIGUOUS_PROMPT,
+    CITATION_FAILURE,
     CONTEXT_OVERFLOW,
     ENTITY_GAP,
     HALLUCINATION,
     PROMPT_BRITTLENESS,
     RETRIEVAL_FAILURE,
+    SCHEMA_VIOLATION,
+    TOOL_CALL_FAILURE,
 )
 from debugai.diagnosis import diagnose
 from debugai.schema import CaptureRecord
@@ -78,3 +82,76 @@ def test_multi_causal_primary_and_secondary():
     d = diagnose(sig, REC, T)
     assert d.primary.failure == RETRIEVAL_FAILURE
     assert all(s.confidence <= d.primary.confidence for s in d.secondary)
+
+
+def test_schema_violation_fires_for_invalid_structured_output():
+    rec = CaptureRecord(
+        user_prompt="Return JSON.",
+        llm_output='{"status": "maybe"}',
+        response_schema={
+            "type": "object",
+            "required": ["status", "answer"],
+            "properties": {
+                "status": {"type": "string", "enum": ["ok", "error"]},
+                "answer": {"type": "string"},
+            },
+        },
+    )
+    failure, d = _primary(_sig(), rec)
+    assert failure == SCHEMA_VIOLATION
+    assert any("Missing required property" in v for v in d.primary.evidence["violations"])
+
+
+def test_tool_call_failure_fires_for_missing_expected_tool():
+    rec = CaptureRecord(
+        user_prompt="Search latest policy.",
+        llm_output="The policy is unchanged.",
+        tools_expected=["search"],
+    )
+    failure, d = _primary(_sig(), rec)
+    assert failure == TOOL_CALL_FAILURE
+    assert "no tool call" in d.primary.evidence["issues"][0]
+
+
+def test_tool_call_failure_fires_for_malformed_arguments():
+    rec = CaptureRecord(
+        user_prompt="Search latest policy.",
+        llm_output="",
+        tools_expected=["search"],
+        tool_calls=[{"name": "search", "input": "{bad json"}],
+    )
+    failure, d = _primary(_sig(), rec)
+    assert failure == TOOL_CALL_FAILURE
+    assert any("malformed JSON" in issue for issue in d.primary.evidence["issues"])
+
+
+def test_citation_failure_fires_for_out_of_range_chunk_reference():
+    rec = CaptureRecord(
+        user_prompt="Answer with citations.",
+        llm_output="The policy allows refunds [3].",
+        retrieved_chunks=["Refunds are available within 30 days."],
+    )
+    failure, d = _primary(_sig(), rec)
+    assert failure == CITATION_FAILURE
+    assert d.primary.evidence["citations"] == [3]
+
+
+def test_citation_failure_fires_when_required_citation_missing():
+    rec = CaptureRecord(
+        user_prompt="Answer with citations.",
+        system_prompt="Cite every factual claim.",
+        llm_output="Refunds are available within 30 days.",
+        retrieved_chunks=["Refunds are available within 30 days."],
+    )
+    failure, d = _primary(_sig(), rec)
+    assert failure == CITATION_FAILURE
+    assert "response has none" in d.primary.evidence["issues"][0]
+
+
+def test_ambiguous_prompt_fires_when_model_answers_without_clarifying():
+    rec = CaptureRecord(
+        user_prompt="Can you do it?",
+        llm_output=" ".join(["I will proceed with the requested task using reasonable assumptions"] * 4),
+    )
+    failure, _ = _primary(_sig(), rec)
+    assert failure == AMBIGUOUS_PROMPT

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from debugai.agents.base import FixAgent
 from debugai.agents.builtin import (
-    ConstraintAgent, ContextOptimizerAgent, DocumentPatchAgent,
-    KnowledgeBaseAgent, PromptRuleAgent, SocraticTutorAgent,
+    AmbiguityGateAgent, CitationVerifierAgent, ConstraintAgent, ContextOptimizerAgent,
+    DocumentPatchAgent, KnowledgeBaseAgent, PromptRuleAgent, SchemaRepairAgent,
+    SocraticTutorAgent, ToolContractAgent,
 )
 from debugai.agents.registry import FixAgentRegistry
 from debugai.agents.types import (
@@ -14,7 +15,7 @@ from debugai.agents.types import (
 )
 from debugai.schema import CaptureRecord
 
-# A process-wide default registry with the five built-ins.
+# A process-wide default registry with the built-ins.
 DEFAULT_REGISTRY = FixAgentRegistry()
 
 
@@ -39,5 +40,7 @@ __all__ = [
     "FixCandidate", "FixReport", "TestCase", "TestResult",
     "PromptRuleAgent", "KnowledgeBaseAgent", "ConstraintAgent",
     "ContextOptimizerAgent", "DocumentPatchAgent", "SocraticTutorAgent",
+    "SchemaRepairAgent", "ToolContractAgent", "CitationVerifierAgent",
+    "AmbiguityGateAgent",
     "VERIFIED", "MITIGATED", "FAILED", "PENDING_RERUN", "ESCALATED",
 ]

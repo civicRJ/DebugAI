@@ -1,6 +1,6 @@
 """Diagnosis pipeline (Architecture §5.2 / §7.3).
 
-Runs all five detectors, ranks the ones that fired by confidence, and returns a
+Runs every detector, ranks the ones that fired by confidence, and returns a
 primary diagnosis plus secondary issues. Gate patterns in the detectors prevent
 nonsensical combinations.
 """

@@ -230,6 +230,9 @@ class AnalyzeRequest(BaseModel):
     max_tokens: int | None = Field(default=None, ge=0, le=10_000_000)
     context_window: int | None = Field(default=None, ge=0, le=100_000_000)
     latency_ms: int | None = Field(default=None, ge=0)
+    tool_calls: list[dict] | None = Field(default=None, max_length=200)
+    tools_expected: list[str] | None = Field(default=None, max_length=100)
+    response_schema: dict | None = None
     model_name: str | None = Field(default=None, max_length=200)
     explain_with_llm: bool = False
     label: str | None = Field(default=None, description="optional human label")
@@ -264,6 +267,9 @@ def _record(req_dict: dict, diagnosis: dict, owner: str) -> dict:
             "max_tokens": req_dict.get("max_tokens"),
             "context_window": req_dict.get("context_window"),
             "latency_ms": req_dict.get("latency_ms"),
+            "tool_calls": req_dict.get("tool_calls") or [],
+            "tools_expected": req_dict.get("tools_expected") or [],
+            "response_schema": req_dict.get("response_schema"),
         },
         "diagnosis": diagnosis,
         "ui": to_card(diagnosis),
@@ -296,6 +302,9 @@ def _run(req: AnalyzeRequest, owner: str, judge: bool = False) -> dict:
         max_tokens=req.max_tokens,
         context_window=req.context_window,
         latency_ms=req.latency_ms,
+        tool_calls=req.tool_calls,
+        tools_expected=req.tools_expected,
+        response_schema=req.response_schema,
         model_name=req.model_name,
         explain_with_llm=req.explain_with_llm,
         thresholds=tstore.current(),
@@ -330,6 +339,12 @@ def _trace_for(req: AnalyzeRequest, rec: dict, owner: str) -> dict:
     gen.set_usage(prompt=max(1, prompt_chars // 4), completion=max(1, len(req.output or "") // 4))
     gen.end_ms = gen.start_ms + float(req.latency_ms or 0)
     t.add_span(gen)
+    for tc in req.tool_calls or []:
+        sp = Span(name=str(tc.get("name") or "tool"), kind="tool")
+        sp.input = tc.get("input")
+        sp.metadata = {"id": tc.get("id", ""), "status": tc.get("status", "")}
+        sp.end_ms = sp.start_ms
+        t.add_span(sp)
     t.diagnosis = diagnosis
     t.scores = scores_from_diagnosis(diagnosis)
     t.status = status_from_diagnosis(diagnosis)
@@ -530,6 +545,9 @@ def _capture_from_input(inp: dict) -> CaptureRecord:
         retrieval_query=inp.get("retrieval_query"),
         temperature=inp.get("temperature"), max_tokens=inp.get("max_tokens"),
         context_window=inp.get("context_window"), latency_ms=inp.get("latency_ms"),
+        tool_calls=inp.get("tool_calls") or [],
+        tools_expected=inp.get("tools_expected") or [],
+        response_schema=inp.get("response_schema"),
     )
 
 
@@ -587,6 +605,8 @@ def api_playground(req: DebugRequest, user: dict = Depends(require_user)):
             retrieval_query=req.retrieval_query, temperature=req.temperature,
             max_tokens=req.max_tokens, context_window=req.context_window,
             model_name=req.model_name, explain_with_llm=req.explain_with_llm,
+            tool_calls=req.tool_calls, tools_expected=req.tools_expected,
+            response_schema=req.response_schema,
             thresholds=tstore_for(user["id"]).current(),
             openai_api_key=auth_store.get_user_key(user["id"], "openai"),
             anthropic_api_key=auth_store.get_user_key(user["id"], "anthropic"),
@@ -604,6 +624,8 @@ def api_playground(req: DebugRequest, user: dict = Depends(require_user)):
             "chunks": req.chunks, "similarity_scores": req.similarity_scores,
             "retrieval_query": req.retrieval_query, "temperature": req.temperature,
             "max_tokens": req.max_tokens, "context_window": req.context_window,
+            "tool_calls": req.tool_calls, "tools_expected": req.tools_expected,
+            "response_schema": req.response_schema,
         })
         fix = _run_fix(diagnosis, rec, req.simulate)
     return {"diagnosis": diagnosis, "ui": to_card(diagnosis), "fix": fix}
@@ -841,5 +863,3 @@ def playground(request: Request):
 @app.get("/dashboard")
 def dashboard(request: Request):
     return _gated(request, "dashboard.html")
-
-

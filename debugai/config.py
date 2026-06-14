@@ -23,7 +23,7 @@ from debugai.thresholds import DEFAULT_THRESHOLDS, Thresholds
 class DebugAIConfig:
     # ── Background workers ──────────────────────────────────────────────────
     enable_diagnosis: bool = True
-    """Run the 8-signal engine + 5 detectors on every (sampled) request."""
+    """Run the 8-signal engine + deterministic detectors on every sampled request."""
 
     enable_traces: bool = True
     """Emit an observability Trace (spans, scores, cost) per request."""

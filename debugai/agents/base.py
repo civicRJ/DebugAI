@@ -157,6 +157,8 @@ class FixAgent(ABC):
             similarity_scores=applied.similarity_scores,
             temperature=applied.temperature,
             context_window=record.context_window,
+            response_schema=record.response_schema,
+            tools_expected=record.tools_expected,
             explain_with_llm=False,
         )
         return result, new_output

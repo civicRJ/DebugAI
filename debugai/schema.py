@@ -39,6 +39,8 @@ class CaptureRecord:
     temperature: float | None = None
     max_tokens: int | None = None
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    tools_expected: list[str] = field(default_factory=list)
+    response_schema: dict[str, Any] | None = None
 
     # --- Runtime metrics ---
     latency_ms: int | None = None

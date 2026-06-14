@@ -20,7 +20,7 @@ built on the `Debug_AI/` design system.
 | Layer | Type | Module | What it does |
 |------|------|--------|--------------|
 | 1 — Signal Extraction | deterministic | `debugai/signals.py` | Computes the 8-metric signal vector (small CPU models + fallbacks, lazy eval) |
-| 2 — Rule Engine | deterministic | `debugai/detectors.py`, `diagnosis.py` | 5 failure detectors → primary + secondary diagnosis |
+| 2 — Rule Engine | deterministic | `debugai/detectors.py`, `diagnosis.py` | 9 failure detectors → primary + secondary diagnosis |
 | 3 — LLM Explainer | probabilistic | `debugai/explainer.py` | Translates the diagnosis into human-readable explanation + fix (Claude; deterministic fallback) |
 | API | — | `debugai/analyze.py` | Level-1 single-call entry point |
 
@@ -32,9 +32,10 @@ context-output overlap · entity coverage · retrieval similarity · contradicti
 (NLI) · output variance (proxy) · latency · token-usage ratio · context-length
 ratio.
 
-### The 5 detectors (evaluation order)
-context overflow → retrieval failure → entity gap → hallucination → prompt
-brittleness. All run; results are ranked by confidence; gate patterns prevent
+### The 9 detectors (evaluation order)
+context overflow → schema violation → tool call failure → retrieval failure →
+citation failure → entity gap → hallucination → prompt brittleness → ambiguous
+prompt. All run; results are ranked by confidence; gate patterns prevent
 nonsensical combinations.
 
 ## Quickstart

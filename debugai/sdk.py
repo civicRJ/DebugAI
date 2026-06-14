@@ -38,6 +38,7 @@ from debugai.config import DebugAIConfig
 from debugai.metrics import metrics as _global_metrics
 from debugai.thresholds import DEFAULT_THRESHOLDS, Thresholds
 from debugai.tracing import Span, Trace, scores_from_diagnosis, status_from_diagnosis
+from debugai.validators import validate_json_schema
 
 log = logging.getLogger("debugai.sdk")
 
@@ -88,6 +89,7 @@ class _Captured:
     model_name: str | None = None
     temperature: float | None = None
     max_tokens: int | None = None
+    tools_expected: list[str] = field(default_factory=list)
 
 
 def _msg_text(content) -> str:
@@ -107,6 +109,21 @@ def _msg_text(content) -> str:
                 out.append(part)
         return " ".join(p for p in out if p)
     return str(content)
+
+
+def _extract_expected_tools(kwargs: dict) -> list[str]:
+    """Best-effort extraction of available tool/function names from request kwargs."""
+    names: list[str] = []
+    for tool in kwargs.get("tools") or []:
+        if isinstance(tool, dict):
+            fn = tool.get("function") if isinstance(tool.get("function"), dict) else {}
+            name = fn.get("name") or tool.get("name")
+            if name:
+                names.append(str(name))
+    for fn in kwargs.get("functions") or []:
+        if isinstance(fn, dict) and fn.get("name"):
+            names.append(str(fn["name"]))
+    return names
 
 
 class _OpenAIAdapter:
@@ -129,6 +146,7 @@ class _OpenAIAdapter:
             model_name=kwargs.get("model"),
             temperature=kwargs.get("temperature"),
             max_tokens=kwargs.get("max_tokens"),
+            tools_expected=_extract_expected_tools(kwargs),
         )
 
     @staticmethod
@@ -179,6 +197,7 @@ class _AnthropicAdapter:
             model_name=kwargs.get("model"),
             temperature=kwargs.get("temperature"),
             max_tokens=kwargs.get("max_tokens"),
+            tools_expected=_extract_expected_tools(kwargs),
         )
 
     @staticmethod
@@ -250,6 +269,7 @@ class _CohereAdapter:
             model_name=kwargs.get("model"),
             temperature=kwargs.get("temperature"),
             max_tokens=kwargs.get("max_tokens"),
+            tools_expected=_extract_expected_tools(kwargs),
         )
 
     @staticmethod
@@ -402,41 +422,7 @@ def _prompt_hash(system_prompt: str) -> str:
 
 
 def _validate_json_schema(output: str, schema: dict) -> list[str]:
-    """Validate a JSON response against a JSON Schema dict. Returns a list of
-    violation strings, or an empty list if valid. Stdlib only (no jsonschema pkg)."""
-    if not schema:
-        return []
-    # Step 1: is it valid JSON?
-    try:
-        data = _json_mod.loads(output.strip())
-    except _json_mod.JSONDecodeError as e:
-        return [f"Output is not valid JSON: {e}"]
-    violations = []
-    # Step 2: basic type checking against the schema (no external dependency).
-    schema_type = schema.get("type")
-    if schema_type:
-        type_map = {"object": dict, "array": list, "string": str,
-                    "number": (int, float), "integer": int, "boolean": bool}
-        expected = type_map.get(schema_type)
-        if expected and not isinstance(data, expected):
-            violations.append(
-                f"Expected JSON {schema_type}, got {type(data).__name__}")
-    # Step 3: check required properties.
-    if isinstance(data, dict):
-        for req in schema.get("required", []):
-            if req not in data:
-                violations.append(f"Missing required property: '{req}'")
-        # Step 4: check property types.
-        for prop, prop_schema in schema.get("properties", {}).items():
-            if prop in data and isinstance(prop_schema, dict):
-                ptype = prop_schema.get("type")
-                type_map = {"string": str, "number": (int, float),
-                            "integer": int, "boolean": bool, "array": list, "object": dict}
-                expected = type_map.get(ptype)
-                if expected and not isinstance(data[prop], expected):
-                    violations.append(
-                        f"Property '{prop}' should be {ptype}, got {type(data[prop]).__name__}")
-    return violations
+    return validate_json_schema(output, schema)
 
 
 # --------------------------------------------------------------------------- #
@@ -452,6 +438,7 @@ class _Job:
     context_window: int | None
     session_id: str | None = None
     tool_calls: list = field(default_factory=list)   # B3
+    response_schema: dict | None = None              # B2 / core detector
     correlation_id: str | None = None                 # B7
     retry_count: int = 0                              # B6
     from_cache: bool = False                          # B5
@@ -537,6 +524,9 @@ class _Diagnoser:
                 context_window=job.context_window,
                 latency_ms=job.latency_ms,
                 token_usage=job.usage,
+                tool_calls=job.tool_calls,
+                tools_expected=job.captured.tools_expected,
+                response_schema=job.response_schema,
                 thresholds=cfg.thresholds,
                 explain_with_llm=cfg.enable_explain,
                 lazy=cfg.lazy,
@@ -770,6 +760,7 @@ def wrap_llm(
                 context_window=context_window,
                 session_id=_session.get() or effective.session_id,
                 tool_calls=tool_calls,
+                response_schema=effective.response_schema,
                 correlation_id=uuid.uuid4().hex[:16],
             ))
         return resp
@@ -984,6 +975,7 @@ def completion(model: str, messages: list, *, config: "DebugAIConfig | None" = N
             context_window=None,
             session_id=_session.get() or cfg.session_id,
             tool_calls=tool_calls,
+            response_schema=cfg.response_schema,
             correlation_id=correlation_id,
             retry_count=retry_count,
         ))
@@ -1094,6 +1086,7 @@ async def acompletion(model: str, messages: list, *, config: "DebugAIConfig | No
     latency_ms = int((time.perf_counter() - start) * 1000)
 
     text, usage_dict = adapter_cls.from_response(resp)
+    tool_calls = (getattr(adapter_cls, "extract_tool_calls", lambda r: [])(resp))
     from debugai.tracing import estimate_cost
     usage = _UsageInfo(usage_dict.get("prompt", 0), usage_dict.get("completion", 0))
     cost = estimate_cost(model, usage.prompt, usage.completion)
@@ -1105,6 +1098,8 @@ async def acompletion(model: str, messages: list, *, config: "DebugAIConfig | No
             latency_ms=latency_ms, retrieval=_retrieval.get(),
             context_window=None,
             session_id=_session.get() or cfg.session_id,
+            tool_calls=tool_calls,
+            response_schema=cfg.response_schema,
         ))
 
     return CompletionResponse(text=text, usage=usage, cost_usd=cost,
@@ -1168,6 +1163,7 @@ class _StreamWrapper:
             retrieval=_retrieval.get(),
             context_window=None,
             session_id=_session.get() or self._cfg.session_id,
+            response_schema=self._cfg.response_schema,
         ))
 
     def __enter__(self):
@@ -1235,6 +1231,7 @@ def awrap_llm(
                 context_window=context_window,
                 session_id=_session.get() or effective.session_id,
                 tool_calls=tool_calls,
+                response_schema=effective.response_schema,
                 correlation_id=uuid.uuid4().hex[:16],
             ))
         return resp

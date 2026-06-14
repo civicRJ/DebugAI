@@ -1,6 +1,6 @@
 """Layer 2 — Failure Classification Rules (Architecture §5).
 
-Five deterministic detectors. Each takes the signal vector + thresholds and
+Deterministic detectors. Each takes the signal vector + thresholds and
 returns a DetectorResult. All detectors run (§5.2); results are ranked by
 confidence into primary + secondary. Gate patterns prevent nonsensical
 multi-classification.
@@ -12,11 +12,14 @@ Detector bases are tuned to the doc's worked example: Scenario A (similarity
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass, field
 
 from debugai.schema import CaptureRecord
 from debugai.signals import SignalVector
 from debugai.thresholds import Thresholds
+from debugai.validators import validate_json_schema
 
 # Failure type identifiers (also used by the fix-agent registry later).
 CONTEXT_OVERFLOW = "context_overflow"
@@ -24,6 +27,10 @@ RETRIEVAL_FAILURE = "retrieval_failure"
 ENTITY_GAP = "entity_gap"
 HALLUCINATION = "hallucination"
 PROMPT_BRITTLENESS = "prompt_brittleness"
+SCHEMA_VIOLATION = "schema_violation"
+TOOL_CALL_FAILURE = "tool_call_failure"
+CITATION_FAILURE = "citation_failure"
+AMBIGUOUS_PROMPT = "ambiguous_prompt"
 
 SEVERITY = {
     CONTEXT_OVERFLOW: "critical",
@@ -31,9 +38,15 @@ SEVERITY = {
     ENTITY_GAP: "warning",
     HALLUCINATION: "critical",
     PROMPT_BRITTLENESS: "warning",
+    SCHEMA_VIOLATION: "critical",
+    TOOL_CALL_FAILURE: "critical",
+    CITATION_FAILURE: "warning",
+    AMBIGUOUS_PROMPT: "warning",
 }
 
 _GATED_BASE = 0.70  # base confidence for a critical gated detector that fires
+_CITATION_RE = re.compile(r"\[(\d+)\]|\b(?:source|chunk)\s*(\d+)\b", re.IGNORECASE)
+_AMBIGUOUS_RE = re.compile(r"\b(it|this|that|these|those|they|them|do it|handle it)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -80,7 +93,71 @@ def detect_context_overflow(s: SignalVector, rec: CaptureRecord, t: Thresholds) 
 
 
 # --------------------------------------------------------------------------- #
-# 2. Retrieval failure — Critical | checked 2nd
+# 2. Schema violation — Critical | structured-output contract
+# --------------------------------------------------------------------------- #
+def detect_schema_violation(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> DetectorResult:
+    violations = validate_json_schema(rec.llm_output, rec.response_schema)
+    fired = bool(violations)
+    conf = 0.85 + min(0.03 * max(len(violations) - 1, 0), 0.10)
+    return DetectorResult(
+        failure=SCHEMA_VIOLATION,
+        fired=fired,
+        confidence=conf,
+        severity=SEVERITY[SCHEMA_VIOLATION],
+        root_cause=(
+            f"The response violates the required structured-output schema: "
+            f"{violations[0] if violations else 'no schema violations'}"
+        ),
+        fix="Enable strict JSON/schema mode when calling the model, add a repair retry "
+        "that re-prompts with the validation errors, and validate before using the response.",
+        evidence={"violations": violations, "schema": rec.response_schema or {}},
+    ).clamp()
+
+
+# --------------------------------------------------------------------------- #
+# 3. Tool call failure — Critical | agent/tool execution contract
+# --------------------------------------------------------------------------- #
+def detect_tool_call_failure(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> DetectorResult:
+    expected = {x for x in (rec.tools_expected or []) if x}
+    calls = rec.tool_calls or []
+    issues: list[str] = []
+
+    if expected and not calls:
+        issues.append(f"Expected one of {sorted(expected)} but no tool call was made.")
+
+    for i, call in enumerate(calls):
+        name = str(call.get("name") or "").strip()
+        raw_input = call.get("input")
+        if not name:
+            issues.append(f"Tool call {i} is missing a tool name.")
+        elif expected and name not in expected:
+            issues.append(f"Tool call {i} used unexpected tool '{name}'.")
+        if isinstance(raw_input, str) and raw_input.strip():
+            try:
+                json.loads(raw_input)
+            except json.JSONDecodeError as e:
+                issues.append(f"Tool call {i} has malformed JSON arguments: {e.msg}.")
+        if call.get("error") or str(call.get("status", "")).lower() in {"error", "failed"}:
+            issues.append(f"Tool call {i} returned an error status.")
+
+    fired = bool(issues)
+    conf = 0.80 + min(0.05 * max(len(issues) - 1, 0), 0.15)
+    return DetectorResult(
+        failure=TOOL_CALL_FAILURE,
+        fired=fired,
+        confidence=conf,
+        severity=SEVERITY[TOOL_CALL_FAILURE],
+        root_cause=(
+            f"The agent/tool contract failed: {issues[0] if issues else 'no tool issues'}"
+        ),
+        fix="Constrain tool selection, validate tool arguments before execution, retry "
+        "malformed calls with the validation error, and require the model to use tool results.",
+        evidence={"issues": issues, "expected_tools": sorted(expected), "tool_calls": calls},
+    ).clamp()
+
+
+# --------------------------------------------------------------------------- #
+# 4. Retrieval failure — Critical | checked after contract failures
 # --------------------------------------------------------------------------- #
 def detect_retrieval_failure(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> DetectorResult:
     fired = s.similarity < t.similarity_min
@@ -106,7 +183,44 @@ def detect_retrieval_failure(s: SignalVector, rec: CaptureRecord, t: Thresholds)
 
 
 # --------------------------------------------------------------------------- #
-# 3. Entity gap — Warning | checked 3rd
+# 5. Citation failure — Warning | source attribution contract
+# --------------------------------------------------------------------------- #
+def detect_citation_failure(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> DetectorResult:
+    output = rec.llm_output or ""
+    chunks = rec.retrieved_chunks or []
+    issues: list[str] = []
+
+    refs = []
+    for m in _CITATION_RE.finditer(output):
+        value = m.group(1) or m.group(2)
+        if value:
+            refs.append(int(value))
+    missing = [r for r in refs if r < 1 or r > len(chunks)]
+    if missing:
+        issues.append(f"Citation(s) {missing} do not map to retrieved chunks.")
+
+    citation_required = "cite" in (rec.system_prompt or "").lower() or "citation" in (
+        rec.system_prompt or ""
+    ).lower()
+    if citation_required and chunks and not refs:
+        issues.append("The prompt requires citations but the response has none.")
+
+    fired = bool(issues)
+    conf = 0.72 if missing else 0.65
+    return DetectorResult(
+        failure=CITATION_FAILURE,
+        fired=fired,
+        confidence=conf,
+        severity=SEVERITY[CITATION_FAILURE],
+        root_cause=f"The response has unsupported citation behavior: {issues[0] if issues else 'citations valid'}",
+        fix="Force citations to use retrieved chunk IDs, reject citations outside the retrieved set, "
+        "and add a post-generation citation verifier before returning the answer.",
+        evidence={"issues": issues, "citations": refs, "chunk_count": len(chunks)},
+    ).clamp()
+
+
+# --------------------------------------------------------------------------- #
+# 6. Entity gap — Warning | checked after retrieval/citation
 # --------------------------------------------------------------------------- #
 def detect_entity_gap(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> DetectorResult:
     fired = (
@@ -133,7 +247,7 @@ def detect_entity_gap(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> Det
 
 
 # --------------------------------------------------------------------------- #
-# 4. Hallucination — Critical | checked 4th
+# 7. Hallucination — Critical | checked after grounding evidence
 # --------------------------------------------------------------------------- #
 def detect_hallucination(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> DetectorResult:
     score = 0.0
@@ -169,7 +283,7 @@ def detect_hallucination(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> 
 
 
 # --------------------------------------------------------------------------- #
-# 5. Prompt brittleness — Warning | checked 5th
+# 8. Prompt brittleness — Warning | residual instability
 # --------------------------------------------------------------------------- #
 def detect_prompt_brittleness(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> DetectorResult:
     gate = (
@@ -196,11 +310,40 @@ def detect_prompt_brittleness(s: SignalVector, rec: CaptureRecord, t: Thresholds
     ).clamp()
 
 
+# --------------------------------------------------------------------------- #
+# 9. Ambiguous prompt — Warning | user request underspecified
+# --------------------------------------------------------------------------- #
+def detect_ambiguous_prompt(s: SignalVector, rec: CaptureRecord, t: Thresholds) -> DetectorResult:
+    prompt = rec.user_prompt or ""
+    output = rec.llm_output or ""
+    short_pronoun_prompt = len(prompt.split()) <= 8 and bool(_AMBIGUOUS_RE.search(prompt))
+    answered_instead_of_clarifying = len(output.split()) >= 30 and "?" not in output
+    fired = short_pronoun_prompt and answered_instead_of_clarifying and not rec.retrieved_chunks
+    return DetectorResult(
+        failure=AMBIGUOUS_PROMPT,
+        fired=fired,
+        confidence=0.62,
+        severity=SEVERITY[AMBIGUOUS_PROMPT],
+        root_cause="The user request is underspecified, but the model answered instead of asking a clarifying question.",
+        fix="Add an ambiguity gate: when the prompt depends on unresolved pronouns or missing constraints, "
+        "ask one clarifying question before producing a final answer.",
+        evidence={
+            "prompt": prompt,
+            "short_prompt": len(prompt.split()) <= 8,
+            "has_ambiguous_reference": bool(_AMBIGUOUS_RE.search(prompt)),
+        },
+    ).clamp()
+
+
 # Priority order matters (§5.2): earlier detectors gate later ones.
 DETECTORS = [
     detect_context_overflow,
+    detect_schema_violation,
+    detect_tool_call_failure,
     detect_retrieval_failure,
+    detect_citation_failure,
     detect_entity_gap,
     detect_hallucination,
     detect_prompt_brittleness,
+    detect_ambiguous_prompt,
 ]

@@ -1,4 +1,4 @@
-"""The five built-in fix agents (Architecture §8.3).
+"""Built-in fix agents (Architecture §8.3).
 
 Each targets one failure type and ships a deterministic fix template. (Fix text
 can be LLM-drafted when a key is present, but the templates make the framework
@@ -13,7 +13,8 @@ from debugai.agents.types import (
     FAILED, PENDING_RERUN, VERIFIED, FixCandidate, FixReport, TestCase,
 )
 from debugai.detectors import (
-    CONTEXT_OVERFLOW, ENTITY_GAP, HALLUCINATION, PROMPT_BRITTLENESS, RETRIEVAL_FAILURE,
+    AMBIGUOUS_PROMPT, CITATION_FAILURE, CONTEXT_OVERFLOW, ENTITY_GAP, HALLUCINATION,
+    PROMPT_BRITTLENESS, RETRIEVAL_FAILURE, SCHEMA_VIOLATION, TOOL_CALL_FAILURE,
 )
 from debugai.judge import INSTRUCTION_VIOLATION, judge_instructions
 from debugai.schema import CaptureRecord
@@ -236,6 +237,123 @@ class SocraticTutorAgent(FixAgent):
         return report
 
 
+# --------------------------------------------------------------------------- #
+# 7. Schema Repair Agent — schema_violation
+# --------------------------------------------------------------------------- #
+class SchemaRepairAgent(FixAgent):
+    name = "Schema Repair Agent"
+    handles = SCHEMA_VIOLATION
+
+    RULES = (
+        "Return ONLY valid JSON matching the requested schema. Do not include "
+        "markdown fences, comments, prose, or extra keys. If a required value is "
+        "unknown, use null only when the schema permits null; otherwise ask for the "
+        "missing input before returning final JSON."
+    )
+
+    def generate_fix(self, diagnosis, record):
+        ev = ((diagnosis.get("primary") or {}).get("evidence") or {})
+        violations = ev.get("violations") or []
+        details = "; ".join(violations[:4]) or "schema validation failed"
+        return FixCandidate(
+            agent=self.name, failure=self.handles,
+            strategy="Enable strict structured output and add a schema-repair retry.",
+            rationale=f"The response did not satisfy the declared schema ({details}).",
+            system_prompt_additions=self.RULES,
+            notes="Validate every model response before use; on validation failure, "
+                  "retry once with the validation errors and the same schema.",
+        )
+
+    def build_test_cases(self, diagnosis, record):
+        return []
+
+
+# --------------------------------------------------------------------------- #
+# 8. Tool Contract Agent — tool_call_failure
+# --------------------------------------------------------------------------- #
+class ToolContractAgent(FixAgent):
+    name = "Tool Contract Agent"
+    handles = TOOL_CALL_FAILURE
+    verifiable_by_rerun = False
+
+    RULES = (
+        "Before answering, decide whether a tool is required. If a listed tool is "
+        "required, call exactly one allowed tool with valid JSON arguments. Never "
+        "invent tool outputs; answer only after incorporating the tool result."
+    )
+
+    def generate_fix(self, diagnosis, record):
+        ev = ((diagnosis.get("primary") or {}).get("evidence") or {})
+        issues = ev.get("issues") or []
+        expected = ", ".join(ev.get("expected_tools") or record.tools_expected or [])
+        return FixCandidate(
+            agent=self.name, failure=self.handles,
+            strategy="Tighten tool-selection rules and validate tool arguments before execution.",
+            rationale=f"The tool contract failed ({'; '.join(issues[:3]) or 'tool call issue'}).",
+            system_prompt_additions=self.RULES,
+            notes=f"Allowed tools: {expected or 'none captured'}. Reject malformed JSON "
+                  "arguments, return tool errors to the model, and retry with the exact "
+                  "validation error.",
+        )
+
+    def build_test_cases(self, diagnosis, record):
+        return []
+
+
+# --------------------------------------------------------------------------- #
+# 9. Citation Verifier Agent — citation_failure
+# --------------------------------------------------------------------------- #
+class CitationVerifierAgent(FixAgent):
+    name = "Citation Verifier Agent"
+    handles = CITATION_FAILURE
+
+    RULES = (
+        "Every factual claim that comes from context must cite a retrieved chunk as "
+        "[1], [2], etc. Use only citations that correspond to the supplied chunks. "
+        "If no chunk supports a claim, remove the claim or say it is not in the context."
+    )
+
+    def generate_fix(self, diagnosis, record):
+        return FixCandidate(
+            agent=self.name, failure=self.handles,
+            strategy="Add citation-format rules and reject citations outside the retrieved set.",
+            rationale="The response either omitted required citations or cited chunks "
+                      "that were not retrieved.",
+            system_prompt_additions=self.RULES,
+            notes="Run a citation verifier after generation and retry if any citation "
+                  "falls outside the retrieved chunk IDs.",
+        )
+
+    def build_test_cases(self, diagnosis, record):
+        return []
+
+
+# --------------------------------------------------------------------------- #
+# 10. Ambiguity Gate Agent — ambiguous_prompt
+# --------------------------------------------------------------------------- #
+class AmbiguityGateAgent(FixAgent):
+    name = "Ambiguity Gate Agent"
+    handles = AMBIGUOUS_PROMPT
+
+    RULES = (
+        "If the user request contains unresolved references, missing constraints, "
+        "or ambiguous pronouns, ask exactly one concise clarifying question before "
+        "attempting a final answer."
+    )
+
+    def generate_fix(self, diagnosis, record):
+        return FixCandidate(
+            agent=self.name, failure=self.handles,
+            strategy="Add an ambiguity gate that asks for clarification before answering.",
+            rationale="The prompt was underspecified, but the model answered as if the "
+                      "missing context were known.",
+            system_prompt_additions=self.RULES,
+        )
+
+    def build_test_cases(self, diagnosis, record):
+        return [TestCase(input=record.user_prompt, must_contain=["?"], category="original")]
+
+
 BUILTIN_AGENTS = [
     PromptRuleAgent,
     KnowledgeBaseAgent,
@@ -243,4 +361,8 @@ BUILTIN_AGENTS = [
     ContextOptimizerAgent,
     DocumentPatchAgent,
     SocraticTutorAgent,
+    SchemaRepairAgent,
+    ToolContractAgent,
+    CitationVerifierAgent,
+    AmbiguityGateAgent,
 ]

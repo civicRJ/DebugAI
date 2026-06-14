@@ -10,8 +10,9 @@ import pytest
 from debugai import analyze
 from debugai.agents import (
     DEFAULT_REGISTRY, ESCALATED, FAILED, MITIGATED, PENDING_RERUN, VERIFIED,
-    ConstraintAgent, ContextOptimizerAgent, DocumentPatchAgent, FixAgent,
-    FixAgentRegistry, KnowledgeBaseAgent, PromptRuleAgent, propose_fix,
+    AmbiguityGateAgent, CitationVerifierAgent, ConstraintAgent, ContextOptimizerAgent,
+    DocumentPatchAgent, FixAgent, FixAgentRegistry, KnowledgeBaseAgent, PromptRuleAgent,
+    SchemaRepairAgent, ToolContractAgent, propose_fix,
 )
 from debugai.schema import CaptureRecord
 
@@ -30,12 +31,17 @@ def diagnose_record(**kw):
         similarity_scores=kw.get("similarity_scores", []),
         temperature=kw.get("temperature"), context_window=kw.get("context_window"),
         max_tokens=kw.get("max_tokens"), latency_ms=kw.get("latency_ms"),
+        tool_calls=kw.get("tool_calls", []),
+        tools_expected=kw.get("tools_expected", []),
+        response_schema=kw.get("response_schema"),
     )
     diag = analyze(
         prompt=rec.user_prompt, output=rec.llm_output, system_prompt=rec.system_prompt,
         chunks=rec.retrieved_chunks, similarity_scores=rec.similarity_scores,
         temperature=rec.temperature, context_window=rec.context_window,
         max_tokens=rec.max_tokens, latency_ms=rec.latency_ms, explain_with_llm=False,
+        tool_calls=rec.tool_calls, tools_expected=rec.tools_expected,
+        response_schema=rec.response_schema,
     )
     return diag, rec
 
@@ -88,6 +94,8 @@ def test_registry_selects_right_agent_per_failure():
         "hallucination": PromptRuleAgent, "retrieval_failure": KnowledgeBaseAgent,
         "prompt_brittleness": ConstraintAgent, "context_overflow": ContextOptimizerAgent,
         "entity_gap": DocumentPatchAgent,
+        "schema_violation": SchemaRepairAgent, "tool_call_failure": ToolContractAgent,
+        "citation_failure": CitationVerifierAgent, "ambiguous_prompt": AmbiguityGateAgent,
     }
     for failure, cls in cases.items():
         diag = {"healthy": False, "primary": {"failure": failure}}
@@ -164,6 +172,64 @@ def test_document_patch_agent_escalates_entity_gap():
     assert report.verdict == ESCALATED
     assert report.candidate.escalate is True
     assert report.candidate.notes  # names the missing entities
+
+
+def test_schema_repair_agent_verifies_valid_json_rerun():
+    schema = {
+        "type": "object",
+        "required": ["status", "answer"],
+        "properties": {
+            "status": {"type": "string", "enum": ["ok", "error"]},
+            "answer": {"type": "string"},
+        },
+    }
+    diag, rec = diagnose_record(
+        prompt="Return JSON.",
+        output='{"status": "maybe"}',
+        response_schema=schema,
+    )
+    assert diag["primary"]["failure"] == "schema_violation"
+    report = propose_fix(diag, rec, rerun=lambda s, u, c, t: '{"status":"ok","answer":"done"}')
+    assert report.agent == "Schema Repair Agent"
+    assert report.verdict == VERIFIED
+
+
+def test_tool_contract_agent_mitigates_tool_failure():
+    diag, rec = diagnose_record(
+        prompt="Search the policy.",
+        output="The policy is unchanged.",
+        tools_expected=["search"],
+    )
+    assert diag["primary"]["failure"] == "tool_call_failure"
+    report = propose_fix(diag, rec, rerun=fake_rerun)
+    assert report.agent == "Tool Contract Agent"
+    assert report.verdict == MITIGATED
+    assert "Allowed tools: search" in report.candidate.notes
+
+
+def test_citation_verifier_agent_verifies_corrected_citation():
+    diag, rec = diagnose_record(
+        prompt="Answer with citations.",
+        system_prompt="Cite every factual claim.",
+        output="Refunds are available within 30 days.",
+        chunks=["Refunds are available within 30 days."],
+        similarity_scores=[0.9],
+    )
+    assert diag["primary"]["failure"] == "citation_failure"
+    report = propose_fix(diag, rec, rerun=lambda s, u, c, t: "Refunds are available within 30 days [1].")
+    assert report.agent == "Citation Verifier Agent"
+    assert report.verdict == VERIFIED
+
+
+def test_ambiguity_gate_agent_verifies_clarifying_question():
+    diag, rec = diagnose_record(
+        prompt="Can you do it?",
+        output=" ".join(["I will proceed using reasonable assumptions"] * 5),
+    )
+    assert diag["primary"]["failure"] == "ambiguous_prompt"
+    report = propose_fix(diag, rec, rerun=lambda s, u, c, t: "Which task do you want me to do?")
+    assert report.agent == "Ambiguity Gate Agent"
+    assert report.verdict == VERIFIED
 
 
 def test_failed_when_fix_does_not_clear():

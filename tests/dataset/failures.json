@@ -1,5 +1,5 @@
 {
-  "_comment": "Step 0 dataset (Architecture §10). 20 labeled cases exercising all 5 detectors plus healthy baselines. Each case is analyze() kwargs + expected primary failure. similarity_scores model the retriever; temperature drives the variance proxy.",
+  "_comment": "Step 0 dataset (Architecture §10). 20 labeled cases exercising the original grounding detectors plus healthy baselines. Each case is analyze() kwargs + expected primary failure. similarity_scores model the retriever; temperature drives the variance proxy.",
   "cases": [
     {
       "id": "rag-01-refund",

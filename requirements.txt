@@ -23,5 +23,8 @@ sqlalchemy>=2.0
 # Per-user API key encryption
 cryptography>=42.0
 
+# Transactional email (optional — set RESEND_API_KEY to enable)
+resend>=2.0
+
 # Dev / test
 pytest>=8.0

@@ -237,7 +237,9 @@
       setFixBusy(true);
       try {
         const r = await api.fix(rec.id);
-        setFix(r && r.detail ? { verdict: "none", error: r.detail } : r);
+        const fr = r && r.detail ? { verdict: "none", error: r.detail } : r;
+        setFix(fr);
+        try { fr && window.debugaiTrack && window.debugaiTrack("fix_proposed", { agent: fr.agent, verdict: fr.verdict }); } catch(_) {}
       } catch (e) { setFix({ verdict: "none", error: "Fix request failed." }); }
       finally { setFixBusy(false); }
     };
@@ -498,6 +500,7 @@
         onResult(res);
         onDone();
         toast("Diagnosis saved.");
+        try { const p = (res.record?.diagnosis?.primary); window.debugaiTrack && window.debugaiTrack("diagnosis_run", { failure: p?.failure || "healthy", has_system_prompt: !!f.system_prompt, source: "debug_workbench" }); } catch(_) {}
       } catch (e) { setError("Could not run diagnosis — check the inputs and try again."); }
       finally { setBusy(false); }
     };
@@ -639,9 +642,12 @@
     const [seeding, setSeeding] = useState(false);
     const [confirmClear, setConfirmClear] = useState(false);
 
-    // Fetch user identity on mount
+    // Fetch user identity on mount + identify for analytics
     useEffect(() => {
-      api.me().then(u => setUser(u)).catch(() => { window.location.href = "/login"; });
+      api.me().then(u => {
+        setUser(u);
+        try { window.debugaiIdentify && window.debugaiIdentify(u.id, { email: u.email, name: u.name }); } catch(_) {}
+      }).catch(() => { window.location.href = "/login"; });
     }, []);
 
     const refresh = useCallback(async () => {

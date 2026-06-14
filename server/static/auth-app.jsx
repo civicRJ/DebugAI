@@ -161,7 +161,11 @@
       setBusy(true); setFormErr(null);
       const r = await apiFetch("/api/auth/register", "POST",
         { email: f.email.trim(), name: f.name.trim(), password: f.password });
-      if (r.ok) { window.location.href = "/dashboard"; return; }
+      if (r.ok) {
+        try { window.debugaiTrack && window.debugaiTrack("signup", { method: "email" }); } catch(_) {}
+        try { window.debugaiIdentify && window.debugaiIdentify(r.data.id, { email: r.data.email, name: r.data.name }); } catch(_) {}
+        window.location.href = "/dashboard"; return;
+      }
       const msg = r.data.detail || "Could not create account.";
       setFormErr(msg.includes("already") ? "Email already registered. Sign in instead?" : msg);
       setBusy(false);

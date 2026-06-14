@@ -135,6 +135,27 @@ class AuthStore:
             raise AuthError("Password must be at least 8 characters.")
 
     # ── Users ────────────────────────────────────────────────────────────────
+    def is_staff(self, user_id: str) -> bool:
+        """Check if a user has staff/admin access."""
+        with self._engine.connect() as conn:
+            # Staff list from env var — comma-separated user IDs or emails
+            staff = set(s.strip() for s in os.environ.get("DEBUGAI_STAFF", "").split(",") if s.strip())
+            if not staff:
+                return False
+            row = conn.execute(text("SELECT email FROM users WHERE id=:id"), {"id": user_id}).fetchone()
+            return bool(row and (user_id in staff or row.email in staff))
+
+    def user_count(self) -> int:
+        with self._engine.connect() as conn:
+            return conn.execute(text("SELECT COUNT(*) FROM users")).scalar() or 0
+
+    def recent_users(self, limit: int = 10) -> list[dict]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT id, email, name, created_at FROM users ORDER BY created_at DESC LIMIT :n"),
+                {"n": limit}).fetchall()
+        return [{"id": r.id, "email": r.email, "name": r.name, "created_at": r.created_at} for r in rows]
+
     def register(self, email: str, name: str, password: str) -> dict:
         email = (email or "").strip().lower()
         name = (name or "").strip()

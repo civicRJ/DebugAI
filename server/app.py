@@ -39,6 +39,7 @@ from debugai.calibration import ThresholdStore
 from debugai.schema import CaptureRecord
 from debugai.tracing import Span, Trace, scores_from_diagnosis, status_from_diagnosis
 from server.auth import AuthError, AuthStore
+from server.email import send_welcome
 from server.paths import data_path
 from server.security import install as install_security
 from server.store import DiagnosisStore, TraceStore
@@ -146,6 +147,10 @@ def api_register(body: RegisterIn, request: Request, response: Response):
     except AuthError as e:
         raise HTTPException(status_code=400, detail=str(e))
     _set_session(response, request, user["id"])
+    # Fire welcome email asynchronously (fails silently if RESEND_API_KEY not set)
+    import threading
+    threading.Thread(target=send_welcome, args=(user["email"], user["name"]),
+                     daemon=True).start()
     return user
 
 
@@ -363,16 +368,20 @@ def api_health():
     return {"status": "ok"}
 
 
+@app.get("/api/config")
+def api_config():
+    """Public client-side config — only safe, non-secret values.
+    PostHog project key is write-only (safe to expose in JS)."""
+    return {
+        "posthogKey": os.environ.get("POSTHOG_KEY", ""),
+        "posthogHost": os.environ.get("POSTHOG_HOST", "https://app.posthog.com"),
+    }
+
+
 @app.get("/api/stats")
 def api_stats(user: dict = Depends(require_user)):
     _ensure_seeded(user["id"])
     return store.stats(owner=user["id"])
-
-
-@app.get("/api/health")
-def api_health():
-    """Liveness/readiness probe (no auth) — used by Docker HEALTHCHECK / LBs."""
-    return {"status": "ok"}
 
 
 @app.get("/api/auth/debug")
@@ -640,6 +649,27 @@ def api_delete_llm_key(provider: str, user: dict = Depends(require_user)):
 def api_get_llm_keys(user: dict = Depends(require_user)):
     """Return which providers the user has keys set (never the key itself)."""
     return auth_store.get_user_keys(user["id"])
+
+
+@app.get("/admin")
+def admin_page(request: Request):
+    if not auth_store.is_staff((current_user(request) or {}).get("id", "")):
+        raise HTTPException(status_code=403, detail="Staff only")
+    return _page("admin.html")
+
+
+@app.get("/api/admin/stats")
+def api_admin_stats(user: dict = Depends(require_user)):
+    if not auth_store.is_staff(user["id"]):
+        raise HTTPException(status_code=403, detail="Staff only")
+    diag_stats = store.stats()
+    trace_stats = trace_store.stats()
+    return {
+        "users": auth_store.user_count(),
+        "diagnoses": diag_stats,
+        "traces": trace_stats,
+        "recent_users": auth_store.recent_users(10),
+    }
 
 
 @app.post("/api/seed")

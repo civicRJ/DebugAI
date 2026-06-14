@@ -10,17 +10,6 @@
 <link rel="stylesheet" href="/static/dashboard.css" />
 <link rel="stylesheet" href="/static/auth.css" />
 <script src="/ds/_ds_bundle.js"></script>
-<script>
-/* Load client config then analytics — non-blocking */
-fetch("/api/config").then(r=>r.json()).then(cfg=>{
-  window.__DEBUGAI_CONFIG__ = cfg;
-  if(cfg.posthogKey){
-    const s=document.createElement("script");
-    s.src="/static/analytics.js"; s.async=true;
-    document.head.appendChild(s);
-  }
-}).catch(()=>{});
-</script>
 </head>
 <body>
 <div id="root"><div class="auth-wrap"><div class="auth-card">Account…</div></div></div>

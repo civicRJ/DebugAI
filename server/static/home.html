@@ -14,17 +14,6 @@
 <link rel="stylesheet" href="/ds/styles.css" />
 <link rel="stylesheet" href="/ds/templates/landing/landing.css?v=5" />
 <script src="/ds/_ds_bundle.js"></script>
-<script>
-/* Load client config then analytics — non-blocking */
-fetch("/api/config").then(r=>r.json()).then(cfg=>{
-  window.__DEBUGAI_CONFIG__ = cfg;
-  if(cfg.posthogKey){
-    const s=document.createElement("script");
-    s.src="/static/analytics.js"; s.async=true;
-    document.head.appendChild(s);
-  }
-}).catch(()=>{});
-</script>
 </head>
 <body>
 <div id="root"><div style="padding:4rem;color:#757061;font-family:monospace">Loading DebugAI…</div></div>

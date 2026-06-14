@@ -46,8 +46,8 @@ function HowItWorks() {
             <svg className="stage__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 3 2 20h20L12 3Z" /><path d="M12 10v4" /><path d="M12 17.5h.01" />
             </svg>
-            <h3>8 signals, 5 detectors</h3>
-            <p>A deterministic engine computes 8 metrics — overlap, entity coverage, similarity, contradiction, variance — then runs 5 failure detectors ranked by confidence.</p>
+            <h3>8 signals, 9 detectors</h3>
+            <p>A deterministic engine computes 8 metrics — overlap, entity coverage, similarity, contradiction, variance — then runs 9 failure detectors ranked by confidence.</p>
             <div className="stage__vis" style={{ display: "grid", gap: "8px" }}>
               <SignalIndicator name="retrieval.similarity" value="0.41" confidence={0.82} status="critical" />
               <SignalIndicator name="context.overlap" value="0.11" confidence={0.9} status="critical" />
@@ -171,7 +171,7 @@ function UseCases() {
         <div className="section__head reveal">
           <span className="ds-overline">Use cases</span>
           <h2>Every LLM failure has a name.</h2>
-          <p>DebugAI doesn't say "something went wrong." It tells you which of the five failure types occurred, why, and what to do.</p>
+          <p>DebugAI doesn't say "something went wrong." It tells you which failure type occurred, why, and what to do.</p>
         </div>
         <div className="usecases-grid reveal">
           {USE_CASES.map((u, i) => (

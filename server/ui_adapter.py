@@ -24,10 +24,14 @@ def _plain(text: str) -> str:
 # Human-readable titles for each failure id.
 TITLES = {
     "context_overflow": "Context overflow",
+    "schema_violation": "Schema violation",
+    "tool_call_failure": "Tool call failure",
     "retrieval_failure": "Retrieval failure",
+    "citation_failure": "Citation failure",
     "entity_gap": "Entity gap",
     "hallucination": "Hallucination",
     "prompt_brittleness": "Prompt brittleness",
+    "ambiguous_prompt": "Ambiguous prompt",
     "instruction_violation": "Instruction / pedagogy violation",
     "healthy": "Healthy",
 }

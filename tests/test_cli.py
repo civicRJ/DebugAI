@@ -19,6 +19,19 @@ def test_analyze_command_json(capsys):
     assert out["primary"]["failure"] == "retrieval_failure"
 
 
+def test_analyze_command_accepts_schema_json(capsys):
+    rc = cli.main([
+        "analyze",
+        "--prompt", "Return JSON",
+        "--output", '{"status":"maybe"}',
+        "--schema-json", '{"type":"object","required":["answer"]}',
+        "--json",
+    ])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["primary"]["failure"] == "schema_violation"
+
+
 def test_diagnose_command_on_dataset(capsys, tmp_path):
     cases = {"cases": [
         {"label": "rf", "prompt": "refund policy?", "output": "Full cash refund in 90 days.",
@@ -48,3 +61,19 @@ def test_fix_command_simulate(capsys, tmp_path):
     assert rc == 0
     out = capsys.readouterr().out
     assert "Prompt Rule Agent" in out and "verified" in out
+
+
+def test_examples_command_json(capsys):
+    rc = cli.main(["examples", "--json"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    ids = {c["id"] for c in out["examples"]}
+    assert "tool_call_failure" in ids
+
+
+def test_report_command_example(capsys):
+    rc = cli.main(["report", "--example", "citation_failure", "--json"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out[0]["failure"] == "citation_failure"
+    assert out[0]["evidence"]

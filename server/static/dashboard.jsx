@@ -100,19 +100,31 @@
 
   // ── Failure breakdown chart (horizontal bars SVG) ─────────────────────────
   const FAILURE_COLORS = {
+    schema_violation: "var(--critical-base)",
+    tool_call_failure: "var(--critical-bright)",
     retrieval_failure: "var(--critical-base)",
+    citation_failure: "var(--warn-base)",
     hallucination: "var(--critical-bright)",
     context_overflow: "var(--warn-base)",
     entity_gap: "var(--amber-300)",
     prompt_brittleness: "var(--trace-base)",
+    ambiguous_prompt: "var(--trace-base)",
+    instruction_violation: "var(--warn-base)",
     healthy: "var(--ok-base)",
   };
   const FAILURE_LABELS = {
-    retrieval_failure: "Retrieval", hallucination: "Hallucination",
+    schema_violation: "Schema", tool_call_failure: "Tool",
+    retrieval_failure: "Retrieval", citation_failure: "Citation",
+    hallucination: "Hallucination",
     context_overflow: "Overflow", entity_gap: "Entity gap",
-    prompt_brittleness: "Brittleness", healthy: "Healthy",
+    prompt_brittleness: "Brittleness", ambiguous_prompt: "Ambiguous",
+    instruction_violation: "Instruction", healthy: "Healthy",
   };
-  const FAILURE_ORDER = ["retrieval_failure", "hallucination", "context_overflow", "entity_gap", "prompt_brittleness", "healthy"];
+  const FAILURE_ORDER = [
+    "schema_violation", "tool_call_failure", "retrieval_failure",
+    "citation_failure", "hallucination", "context_overflow", "entity_gap",
+    "prompt_brittleness", "ambiguous_prompt", "instruction_violation", "healthy",
+  ];
 
   function FailureChart({ byFailure, total }) {
     if (!byFailure || total === 0) return null;

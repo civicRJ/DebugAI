@@ -3,17 +3,59 @@
 [![CI](https://github.com/civicRJ/DebugAI/actions/workflows/ci.yml/badge.svg)](https://github.com/civicRJ/DebugAI/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg)](LICENSE)
 
-> Diagnose **why** LLM outputs fail and get the **exact fix** — reducing hours of trial-and-error debugging to seconds.
+> A pip-installable LLM debugging SDK that tells you **why** an AI response failed, shows the evidence, and proposes the fix.
 
-DebugAI is a 3-layer root-cause engine for LLM applications (RAG systems,
-chatbots, copilots). Unlike observability tools that stop at dashboards, it
-classifies the failure and proposes a specific, actionable fix.
+DebugAI is built around the Python SDK first. Wrap your LLM client or call
+`debug_report()` directly, and DebugAI returns a product-level debug artifact:
+failure type, confidence, evidence, root cause, fix, and verification status.
+The hosted dashboard and traces are supporting views, not the core workflow.
 
 This repository implements **Phase 1 — the deterministic diagnosis core**
 (Steps 1–3 of the roadmap in `debugai_architecture_v3.pdf`): the signal engine,
 the rule engine, and the `analyze()` API with an LLM explainer — plus the
 **Level 2 `wrap_llm()` SDK wrapper** (Step 5) and a **web dashboard** (Step 6)
 built on the `Debug_AI/` design system.
+
+## SDK quickstart
+
+```bash
+pip install debugerai
+```
+
+```python
+from debugai import debug_report
+
+report = debug_report(
+    prompt="What is the refund policy for electronics?",
+    output="Electronics can be returned within 90 days for a full cash refund.",
+    chunks=["Our store hours are 9am to 5pm.", "Parking is behind the building."],
+    similarity_scores=[0.42, 0.40],
+    temperature=0.2,
+)
+
+print(report["failure"])       # retrieval_failure
+print(report["evidence"])      # ['Mean similarity 0.41', ...]
+print(report["fix"])           # specific repair guidance
+```
+
+Or wrap your existing client and diagnose calls in the background:
+
+```python
+from openai import OpenAI
+from debugai import wrap_llm
+
+client = wrap_llm(OpenAI(), on_diagnosis=lambda d: print(d["primary"]))
+client.chat.completions.create(model="gpt-4o", messages=[...])
+client.debugai.flush()
+```
+
+Try built-in debugger examples from the CLI:
+
+```bash
+debugai examples
+debugai report --example schema_violation --json
+debugai report cases.json --simulate
+```
 
 ## Architecture (implemented)
 
@@ -74,6 +116,8 @@ Installs a `debugai` console command (`pip install debugerai` or `pip install -e
 ```bash
 debugai analyze --prompt "..." --output "..." --chunk "..." --score 0.41
 debugai diagnose cases.json            # a capture dict, list, or {cases:[...]}
+debugai report --example tool_call_failure
+debugai examples                       # list built-in debugger cases
 debugai fix cases.json --simulate      # diagnose + propose & verify a fix
 debugai serve --port 8000              # launch the web app
 ```
@@ -108,6 +152,24 @@ Only `prompt` and `output` are required (Core IO). Supplying retrieval
 signals.
 
 ### Output contract
+
+`debug_report()` returns the SDK-level artifact most apps should log or display:
+
+```jsonc
+{
+  "status": "failing",
+  "failure": "tool_call_failure",
+  "confidence": 0.8,
+  "severity": "critical",
+  "root_cause": "The agent/tool contract failed...",
+  "evidence": ["Expected one of ['search'] but no tool call was made."],
+  "fix": "Constrain tool selection...",
+  "diagnosis": { /* full analyze() result */ },
+  "fix_report": { "verdict": "mitigated", "agent": "Tool Contract Agent" }
+}
+```
+
+`analyze()` returns the lower-level diagnosis object:
 
 ```jsonc
 {
@@ -278,8 +340,8 @@ failing case and get a one-shot diagnosis **and** verified fix:
 > fix agent proposes a repair, runs the regression suite, and re-diagnoses — all
 > shown inline. "Load example" fills a sample hallucination case.
 
-Both pages load React via CDN and the compiled design-system bundle from the `/ds`
-mount — the same pattern as the original template.
+Both pages load vendored React and the compiled design-system bundle from the
+`/ds` mount, so the local app runs without CDN access.
 
 ### LangChain integration
 
@@ -376,7 +438,7 @@ print(report.diff, report.tests_passed, report.after_diagnosis)
 so the framework has no hard LLM dependency (pass `None` to get the proposal +
 test suite without executing them).
 
-**Five built-in agents** (auto-selected by the registry):
+**Built-in agents** (auto-selected by the registry):
 
 | Agent | Handles | Strategy | Verdict behavior |
 |---|---|---|---|
@@ -385,6 +447,11 @@ test suite without executing them).
 | Constraint | prompt brittleness | lower temperature + format template + few-shot | verified when variance clears |
 | Context Optimizer | context overflow | top-N chunks + summarize to fit window | verified when ratio drops |
 | Document Patch | entity gap | flag the KB gap | **escalated** (no safe auto-fix) |
+| Schema Repair | schema violation | strict JSON/schema mode + repair retry | verified when schema validation clears |
+| Tool Contract | tool call failure | enforce allowed tools + validate arguments | **mitigated** unless a tool-capable rerun verifies it |
+| Citation Verifier | citation failure | require retrieved chunk IDs only | verified when citation checks clear |
+| Ambiguity Gate | ambiguous prompt | ask a clarifying question before answering | verified when the model clarifies |
+| Socratic Tutor | instruction violation | tighten behavioral rules and re-judge | verified when the judge clears |
 
 **Plugin architecture (§8.5):** custom agents register at the front and win
 over built-ins:
@@ -440,9 +507,8 @@ vars (the local demo needs none):
 | `DEBUGAI_SSL_CERT` / `DEBUGAI_SSL_KEY` | serve HTTPS directly (`./run.sh`), or terminate TLS at a proxy (nginx/Caddy). |
 
 Security headers (CSP, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`,
-COOP) are sent on every response. The CSP allows the unpkg CDN + inline/eval
-because the dashboard transforms JSX in-browser; for a strict CSP, pre-compile
-the JSX and drop the Babel/CDN script tags.
+COOP) are sent on every response. The frontend is precompiled and uses vendored
+React, so no CDN is required at runtime.
 
 ## Accuracy benchmark
 

@@ -1,10 +1,11 @@
 # DebugAI Features
 
-DebugAI is an AI observability and debugging platform for LLM applications. It diagnoses why an LLM response failed, explains the root cause, proposes a concrete fix, and records the request as an observability trace.
+DebugAI is an SDK-first LLM debugging platform. It diagnoses why an LLM response failed, explains the root cause, proposes a concrete fix, and can optionally record the request as an observability trace.
 
 ## Core Diagnosis Engine
 
 - Single-call `analyze()` API for diagnosing a prompt/output pair.
+- SDK-level `debug_report()` artifact that combines failure, evidence, root cause, fix, diagnosis, and verification status.
 - Unified `CaptureRecord` schema for core IO, retrieval context, model metadata, runtime metrics, context-window hints, tool-call metadata, and structured-output schema contracts.
 - Deterministic signal extraction before classification.
 - Healthy fail-open behavior: requests with no detected failure avoid unnecessary LLM explanation cost.
@@ -103,6 +104,9 @@ Fix-agent capabilities:
 
 - `wrap_llm()` for synchronous SDK instrumentation.
 - `awrap_llm()` for async SDK instrumentation.
+- `debug_report()` for one-shot product-level debugging from plain Python dictionaries.
+- `format_debug_report()` for log-friendly terminal output.
+- Built-in example cases via `list_examples()`, `get_example()`, and `example_cases()`.
 - Transparent proxy around existing clients so call sites can remain unchanged.
 - Background diagnosis worker so diagnosis does not block the original LLM request.
 - `retrieval_context()` context manager for attaching RAG chunks and similarity scores.
@@ -208,6 +212,8 @@ Provider routing supports:
 The `debugai` command provides:
 
 - `debugai analyze` for diagnosing one prompt/output pair.
+- `debugai report` for the SDK-level debug report artifact.
+- `debugai examples` for curated debugger demo cases.
 - `debugai diagnose` for diagnosing JSON case files.
 - `debugai fix` for diagnose/fix/verify workflows.
 - `debugai serve` for launching the web app.

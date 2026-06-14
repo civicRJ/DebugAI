@@ -1,9 +1,9 @@
-"""DebugAI — AI Observability & Debugging Platform.
+"""DebugAI — SDK-first LLM debugging platform.
 
 A 3-layer root-cause engine for LLM application failures:
 
   Layer 1 (deterministic)  — Signal extraction: 8 metrics per request.
-  Layer 2 (deterministic)  — Rule engine: 5 failure detectors, primary + secondary.
+  Layer 2 (deterministic)  — Rule engine: failure detectors, primary + secondary.
   Layer 3 (probabilistic)  — LLM explainer: human-readable explanation + fix.
 
 Public API (Level 1 integration):
@@ -15,7 +15,9 @@ Public API (Level 1 integration):
 from debugai.schema import CaptureRecord
 from debugai.analyze import analyze
 from debugai.config import DebugAIConfig
+from debugai.examples import example_cases, get_example, list_examples
 from debugai.metrics import metrics
+from debugai.report import debug_report, format_debug_report
 from debugai.sdk import (
     wrap_llm, awrap_llm, retrieval_context, session, http_trace_sink,
     completion, acompletion, CompletionResponse,
@@ -27,7 +29,8 @@ from debugai.tracing import Trace, Span, Tracer, Score
 
 __all__ = [
     # Core
-    "analyze", "CaptureRecord",
+    "analyze", "CaptureRecord", "debug_report", "format_debug_report",
+    "list_examples", "get_example", "example_cases",
     # Config & metrics
     "DebugAIConfig", "metrics",
     # SDK wrappers

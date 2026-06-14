@@ -131,6 +131,31 @@ def test_debug_endpoint_one_shot_diagnose_and_fix(client):
     assert r["fix"]["agent"]
 
 
+def test_playground_accepts_schema_and_tool_debug_inputs(client):
+    schema = {
+        "type": "object",
+        "required": ["status", "answer"],
+        "properties": {
+            "status": {"type": "string", "enum": ["ok", "error"]},
+            "answer": {"type": "string"},
+        },
+    }
+    r = client.post("/api/playground", json={
+        "prompt": "Classify this ticket and return JSON.",
+        "output": '{"status": "maybe"}',
+        "response_schema": schema,
+        "tools_expected": ["search"],
+        "tool_calls": [],
+        "run_fix": True,
+        "simulate": True,
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["diagnosis"]["primary"]["failure"] == "schema_violation"
+    assert body["ui"]["title"] == "Schema violation"
+    assert body["fix"]["agent"] == "Schema Repair Agent"
+
+
 def test_analyze_creates_linked_trace(client):
     client.post("/api/analyze", json={
         "prompt": "What is the refund policy?",

@@ -623,10 +623,61 @@
     );
   }
 
+  // ── Workspace switcher ────────────────────────────────────────────────────
+  function WorkspaceSwitcher({ workspace, onSwitch }) {
+    const [open, setOpen] = useState(false);
+    if (!workspace || !workspace.orgs || workspace.orgs.length === 0) return null;
+    const active = workspace.active_org_id
+      ? workspace.orgs.find(o => o.id === workspace.active_org_id)
+      : null;
+    const label = active ? active.name : "Personal";
+
+    async function switchTo(orgId) {
+      setOpen(false);
+      try {
+        await dfetch("/api/user/workspace", { method: "PATCH",
+          body: JSON.stringify({ org_id: orgId }) });
+        onSwitch();
+        window.location.reload();
+      } catch (_) {}
+    }
+
+    return (
+      <div className="ws-switcher">
+        <button className="ws-switcher__btn" onClick={() => setOpen(o => !o)}
+          type="button" aria-expanded={open} aria-haspopup="listbox">
+          <span className="ws-switcher__label">{label}</span>
+          <span className="ws-switcher__chevron">▾</span>
+        </button>
+        {open && (
+          <div className="ws-switcher__menu" role="listbox">
+            <button className={"ws-switcher__item" + (!workspace.active_org_id ? " active" : "")}
+              type="button" onClick={() => switchTo(null)}>
+              Personal workspace
+            </button>
+            {workspace.orgs.map(o => (
+              <button key={o.id} type="button"
+                className={"ws-switcher__item" + (workspace.active_org_id === o.id ? " active" : "")}
+                onClick={() => switchTo(o.id)}>
+                {o.name}
+                <span className="ws-switcher__role">{o.role}</span>
+              </button>
+            ))}
+            <div className="ws-switcher__divider" />
+            <a href="/account" className="ws-switcher__item ws-switcher__item--link">
+              Manage organisations ↗
+            </a>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // ── App ────────────────────────────────────────────────────────────────────
   function App() {
     const [user, setUser] = useState(null);
     const [stats, setStats] = useState({ total: 0, failing: 0, healthy: 0, by_failure: {} });
+    const [workspace, setWorkspace] = useState({ active_org_id: null, orgs: [] });
     const [thresholds, setThresholds] = useState(null);
     const [items, setItems] = useState([]);
     const [filter, setFilter] = useState(null);
@@ -642,12 +693,13 @@
     const [seeding, setSeeding] = useState(false);
     const [confirmClear, setConfirmClear] = useState(false);
 
-    // Fetch user identity on mount + identify for analytics
+    // Fetch user identity + workspace on mount
     useEffect(() => {
       api.me().then(u => {
         setUser(u);
         try { window.debugaiIdentify && window.debugaiIdentify(u.id, { email: u.email, name: u.name }); } catch(_) {}
       }).catch(() => { window.location.href = "/login"; });
+      dfetch("/api/user/workspace").then(setWorkspace).catch(() => {});
     }, []);
 
     const refresh = useCallback(async () => {
@@ -726,6 +778,7 @@
             </div>
           </a>
           <div className="dash-nav">
+            <WorkspaceSwitcher workspace={workspace} onSwitch={() => {}} />
             {["diagnoses", "traces", "sessions"].map(v => (
               <button key={v} className="view-tab" data-active={view === v} onClick={() => setView(v)} type="button">{v}</button>
             ))}

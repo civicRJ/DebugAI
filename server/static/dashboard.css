@@ -54,6 +54,20 @@ html, body { margin: 0; background: var(--bg-base); color: var(--text-primary); 
   border-left: 1px solid var(--border-faint); margin-left: var(--space-1);
 }
 
+/* ── Workspace switcher ───────────────────────────────────────────────────── */
+.ws-switcher { position: relative; }
+.ws-switcher__btn { display: flex; align-items: center; gap: var(--space-1); background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--text-xs); padding: var(--space-2) var(--space-3); cursor: pointer; transition: border-color var(--dur-fast); }
+.ws-switcher__btn:hover { border-color: var(--border-strong); color: var(--text-primary); }
+.ws-switcher__label { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-switcher__chevron { color: var(--text-quaternary); font-size: 10px; }
+.ws-switcher__menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 200; background: var(--bg-elevated); border: 1px solid var(--border-default); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); min-width: 200px; overflow: hidden; }
+.ws-switcher__item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); width: 100%; background: none; border: none; color: var(--text-secondary); font-family: var(--font-sans); font-size: var(--text-sm); padding: var(--space-3) var(--space-4); cursor: pointer; text-align: left; text-decoration: none; }
+.ws-switcher__item:hover { background: var(--bg-overlay); color: var(--text-primary); }
+.ws-switcher__item.active { color: var(--amber-base); background: var(--amber-muted); }
+.ws-switcher__item--link { color: var(--text-tertiary); font-size: var(--text-xs); }
+.ws-switcher__role { font-size: var(--text-2xs); color: var(--text-quaternary); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: var(--tracking-caps); }
+.ws-switcher__divider { height: 1px; background: var(--border-faint); margin: var(--space-1) 0; }
+
 /* ── View tabs ───────────────────────────────────────────────────────────── */
 .view-tab {
   cursor: pointer; background: transparent; border: 1px solid transparent;

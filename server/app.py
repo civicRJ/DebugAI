@@ -270,6 +270,12 @@ def _record(req_dict: dict, diagnosis: dict, owner: str) -> dict:
     }
 
 
+def _effective_owner(user_id: str) -> str:
+    """Return the data-scoping owner: active org_id (prefixed o_…) or user_id."""
+    active = auth_store.get_active_workspace(user_id)
+    return active if active else user_id
+
+
 def _run(req: AnalyzeRequest, owner: str, judge: bool = False) -> dict:
     # Adaptive: diagnose with this user's calibrated thresholds, then feed the
     # result back so the baseline keeps learning (§7.2). The instruction-adherence
@@ -348,7 +354,7 @@ def _ensure_seeded(owner: str) -> None:
 @app.post("/api/analyze")
 def api_analyze(req: AnalyzeRequest, user: dict = Depends(require_user)):
     try:
-        return _run(req, user["id"])
+        return _run(req, _effective_owner(user["id"]))
     except Exception:
         log.exception("analyze failed")
         raise HTTPException(status_code=400, detail="analysis failed")
@@ -359,7 +365,7 @@ def api_diagnoses(failure: str | None = None,
                   q: str | None = Query(None, max_length=200),
                   limit: int = Query(100, ge=1, le=500),
                   user: dict = Depends(require_user)):
-    return {"items": store.list(owner=user["id"], failure=failure, q=q, limit=limit)}
+    return {"items": store.list(owner=_effective_owner(user["id"]), failure=failure, q=q, limit=limit)}
 
 
 @app.get("/api/health")
@@ -381,7 +387,7 @@ def api_config():
 @app.get("/api/stats")
 def api_stats(user: dict = Depends(require_user)):
     _ensure_seeded(user["id"])
-    return store.stats(owner=user["id"])
+    return store.stats(owner=_effective_owner(user["id"]))
 
 
 @app.get("/api/auth/debug")
@@ -449,13 +455,13 @@ def api_ingest_trace(trace: TraceIn, user: dict = Depends(require_user)):
 def api_traces(session: str | None = None, status: str | None = None,
                limit: int = Query(100, ge=1, le=500),
                user: dict = Depends(require_user)):
-    return {"items": trace_store.list(owner=user["id"], session=session,
+    return {"items": trace_store.list(owner=_effective_owner(user["id"]), session=session,
                                       status=status, limit=limit)}
 
 
 @app.get("/api/traces/{trace_id}")
 def api_trace(trace_id: str, user: dict = Depends(require_user)):
-    t = trace_store.get(trace_id, owner=user["id"])
+    t = trace_store.get(trace_id, owner=_effective_owner(user["id"]))
     if t is None:
         raise HTTPException(status_code=404, detail="trace not found")
     return t
@@ -463,12 +469,12 @@ def api_trace(trace_id: str, user: dict = Depends(require_user)):
 
 @app.get("/api/sessions")
 def api_sessions(user: dict = Depends(require_user)):
-    return {"items": trace_store.sessions(owner=user["id"])}
+    return {"items": trace_store.sessions(owner=_effective_owner(user["id"]))}
 
 
 @app.get("/api/observability/stats")
 def api_obs_stats(user: dict = Depends(require_user)):
-    return trace_store.stats(owner=user["id"])
+    return trace_store.stats(owner=_effective_owner(user["id"]))
 
 
 def _grounded_stub(system_prompt, user_prompt, chunks, temperature):
@@ -550,7 +556,7 @@ def _run_fix(diagnosis: dict, record: CaptureRecord, simulate: bool) -> dict | N
 @app.post("/api/fix/{diagnosis_id}")
 def api_fix(diagnosis_id: str, simulate: bool = True, user: dict = Depends(require_user)):
     """Run the diagnose-fix-verify loop for a stored diagnosis (§8)."""
-    rec = store.get(diagnosis_id, owner=user["id"])
+    rec = store.get(diagnosis_id, owner=_effective_owner(user["id"]))
     if rec is None:
         raise HTTPException(status_code=404, detail="diagnosis not found")
     out = _run_fix(rec["diagnosis"], _capture_from_input(rec["input"]), simulate)
@@ -571,7 +577,7 @@ def api_debug(req: DebugRequest, user: dict = Depends(require_user)):
     if req.session_id is None:
         req.session_id = "debug-workbench"
     try:
-        rec = _run(req, user["id"], judge=True)  # judge runs ONLY here (Debug a bug)
+        rec = _run(req, _effective_owner(user["id"]), judge=True)  # judge runs ONLY here (Debug a bug)
     except Exception:
         log.exception("debug failed")
         raise HTTPException(status_code=400, detail="diagnosis failed")
@@ -672,6 +678,108 @@ def api_admin_stats(user: dict = Depends(require_user)):
     }
 
 
+class OrgCreate(BaseModel):
+    name: str = Field(max_length=120)
+
+
+class InviteCreate(BaseModel):
+    email: str = Field(max_length=320)
+    role: str = Field(default="member", pattern="^(admin|member)$")
+
+
+@app.post("/api/orgs")
+def api_org_create(body: OrgCreate, user: dict = Depends(require_user)):
+    try:
+        org = auth_store.create_org(body.name, user["id"])
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return org
+
+
+@app.get("/api/orgs")
+def api_org_list(user: dict = Depends(require_user)):
+    return {"items": auth_store.list_user_orgs(user["id"])}
+
+
+@app.get("/api/orgs/{org_id}")
+def api_org_get(org_id: str, user: dict = Depends(require_user)):
+    if not auth_store.user_org_role(org_id, user["id"]):
+        raise HTTPException(status_code=403, detail="Not a member of this organisation.")
+    org = auth_store.get_org(org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organisation not found.")
+    members = auth_store.list_org_members(org_id)
+    return {**org, "members": members}
+
+
+@app.delete("/api/orgs/{org_id}/members/{member_id}")
+def api_org_remove_member(org_id: str, member_id: str, user: dict = Depends(require_user)):
+    role = auth_store.user_org_role(org_id, user["id"])
+    if role not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Admin or owner required.")
+    if member_id == user["id"] and role == "owner":
+        raise HTTPException(status_code=400, detail="Owner cannot remove themselves.")
+    auth_store.remove_org_member(org_id, member_id)
+    return {"ok": True}
+
+
+@app.post("/api/orgs/{org_id}/invites")
+def api_org_invite(org_id: str, body: InviteCreate, user: dict = Depends(require_user)):
+    role = auth_store.user_org_role(org_id, user["id"])
+    if role not in ("owner", "admin"):
+        raise HTTPException(status_code=403, detail="Admin or owner required.")
+    org = auth_store.get_org(org_id)
+    try:
+        token = auth_store.create_invite(org_id, body.email, body.role)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    # Send invite email (fire-and-forget)
+    import threading
+    from server.email import send_invite
+    threading.Thread(target=send_invite,
+                     args=(body.email, org["name"], token), daemon=True).start()
+    return {"ok": True, "token": token}  # token also returned for debugging
+
+
+@app.get("/api/orgs/invites/{token}")
+def api_invite_info(token: str):
+    """Public endpoint — shows org name for the accept-invite page."""
+    invite = auth_store.get_invite(token)
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found or expired.")
+    return {"org_name": invite["org_name"], "role": invite["role"]}
+
+
+@app.post("/api/orgs/invites/{token}/accept")
+def api_invite_accept(token: str, user: dict = Depends(require_user)):
+    try:
+        invite = auth_store.accept_invite(token, user["id"])
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "org_id": invite["org_id"], "org_name": invite["org_name"]}
+
+
+class WorkspaceSwitch(BaseModel):
+    org_id: str | None = None  # None = personal workspace
+
+
+@app.patch("/api/user/workspace")
+def api_switch_workspace(body: WorkspaceSwitch, user: dict = Depends(require_user)):
+    """Switch between personal workspace and an org workspace."""
+    try:
+        auth_store.set_active_workspace(user["id"], body.org_id)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "active_org_id": body.org_id}
+
+
+@app.get("/api/user/workspace")
+def api_get_workspace(user: dict = Depends(require_user)):
+    active = auth_store.get_active_workspace(user["id"])
+    orgs = auth_store.list_user_orgs(user["id"])
+    return {"active_org_id": active, "orgs": orgs}
+
+
 @app.post("/api/seed")
 def api_seed(user: dict = Depends(require_user)):
     """(Re)seed the signed-in account with the labeled sample dataset."""
@@ -699,6 +807,11 @@ def _gated(request: Request, name: str):
     if current_user(request) is None:
         return RedirectResponse("/login", status_code=302)
     return _page(name)
+
+
+@app.get("/accept-invite")
+def accept_invite_page():
+    return _page("accept-invite.html")
 
 
 @app.get("/")

@@ -30,6 +30,47 @@ def _client():
         return None
 
 
+def send_invite(to_email: str, org_name: str, token: str) -> None:
+    """Send an organisation invite email. Fails silently if unconfigured."""
+    client = _client()
+    if not client:
+        return
+    accept_url = f"{APP_URL}/accept-invite?token={token}"
+    html = f"""
+<!DOCTYPE html>
+<html>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0c0a;color:#f4f0e6;padding:40px 24px;max-width:520px;margin:0 auto">
+  <p style="font-size:20px;font-weight:700;margin:0 0 8px">
+    <span style="color:#EF9F27">Debug</span>AI
+  </p>
+  <h1 style="font-size:22px;font-weight:700;margin:0 0 16px">
+    You're invited to join <em>{org_name}</em>
+  </h1>
+  <p style="color:#aba593;line-height:1.65;margin:0 0 24px">
+    Someone at {org_name} has invited you to collaborate on DebugAI —
+    shared LLM failure diagnoses, traces, and fix agents.
+  </p>
+  <a href="{accept_url}"
+     style="display:inline-block;background:#EF9F27;color:#1a1304;font-weight:700;
+            padding:12px 28px;border-radius:6px;text-decoration:none;font-size:15px">
+    Accept invitation →
+  </a>
+  <p style="color:#757061;font-size:12px;margin:24px 0 0">
+    This link expires in 7 days. If you weren't expecting this, ignore this email.
+  </p>
+</body>
+</html>"""
+    try:
+        client.Emails.send({
+            "from": FROM_ADDRESS,
+            "to": [to_email],
+            "subject": f"You're invited to join {org_name} on DebugAI",
+            "html": html,
+        })
+    except Exception as e:
+        log.warning("invite email failed (%s)", e)
+
+
 def send_welcome(to_email: str, name: str) -> None:
     """Fire a welcome email after registration. Fails silently if unconfigured."""
     client = _client()

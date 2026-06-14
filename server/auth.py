@@ -119,6 +119,40 @@ class AuthStore:
                     PRIMARY KEY (user_id, provider)
                 )
             """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS orgs (
+                    id           TEXT PRIMARY KEY,
+                    name         TEXT NOT NULL,
+                    owner_id     TEXT NOT NULL,
+                    plan         TEXT NOT NULL DEFAULT 'free',
+                    created_at   REAL NOT NULL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS org_memberships (
+                    org_id    TEXT NOT NULL,
+                    user_id   TEXT NOT NULL,
+                    role      TEXT NOT NULL DEFAULT 'member',
+                    joined_at REAL NOT NULL,
+                    PRIMARY KEY (org_id, user_id)
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS org_invites (
+                    token      TEXT PRIMARY KEY,
+                    org_id     TEXT NOT NULL,
+                    email      TEXT NOT NULL,
+                    role       TEXT NOT NULL DEFAULT 'member',
+                    created_at REAL NOT NULL,
+                    expires_at REAL NOT NULL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_preferences (
+                    user_id       TEXT PRIMARY KEY,
+                    active_org_id TEXT
+                )
+            """))
 
     @staticmethod
     def _public(row) -> dict:
@@ -336,10 +370,121 @@ class AuthStore:
                 "DELETE FROM user_keys WHERE user_id=:uid AND provider=:prov"),
                 {"uid": user_id, "prov": provider})
 
+    # ── Orgs ─────────────────────────────────────────────────────────────────
+    def create_org(self, name: str, owner_id: str) -> dict:
+        name = (name or "").strip()
+        if not name:
+            raise AuthError("Organisation name is required.")
+        oid = "o_" + secrets.token_hex(8)
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("INSERT INTO orgs VALUES (:id,:name,:owner_id,:plan,:ts)"),
+                         {"id": oid, "name": name, "owner_id": owner_id,
+                          "plan": "free", "ts": time.time()})
+            conn.execute(text("INSERT INTO org_memberships VALUES (:oid,:uid,'owner',:ts)"),
+                         {"oid": oid, "uid": owner_id, "ts": time.time()})
+        return {"id": oid, "name": name, "plan": "free", "role": "owner"}
+
+    def get_org(self, org_id: str) -> dict | None:
+        with self._engine.connect() as conn:
+            row = conn.execute(text("SELECT * FROM orgs WHERE id=:id"), {"id": org_id}).fetchone()
+        return {"id": row.id, "name": row.name, "plan": row.plan, "owner_id": row.owner_id} if row else None
+
+    def list_user_orgs(self, user_id: str) -> list[dict]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT o.id, o.name, o.plan, m.role FROM orgs o "
+                "JOIN org_memberships m ON m.org_id=o.id "
+                "WHERE m.user_id=:uid ORDER BY o.created_at"), {"uid": user_id}).fetchall()
+        return [{"id": r.id, "name": r.name, "plan": r.plan, "role": r.role} for r in rows]
+
+    def list_org_members(self, org_id: str) -> list[dict]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT u.id, u.name, u.email, m.role, m.joined_at "
+                "FROM org_memberships m JOIN users u ON u.id=m.user_id "
+                "WHERE m.org_id=:oid ORDER BY m.joined_at"), {"oid": org_id}).fetchall()
+        return [{"id": r.id, "name": r.name, "email": r.email,
+                 "role": r.role, "joined_at": r.joined_at} for r in rows]
+
+    def user_org_role(self, org_id: str, user_id: str) -> str | None:
+        """Return the user's role in the org, or None if not a member."""
+        with self._engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT role FROM org_memberships WHERE org_id=:oid AND user_id=:uid"),
+                {"oid": org_id, "uid": user_id}).fetchone()
+        return row.role if row else None
+
+    def remove_org_member(self, org_id: str, user_id: str) -> None:
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("DELETE FROM org_memberships WHERE org_id=:oid AND user_id=:uid"),
+                         {"oid": org_id, "uid": user_id})
+
+    # ── Invites ──────────────────────────────────────────────────────────────
+    def create_invite(self, org_id: str, email: str, role: str = "member",
+                      ttl: int = 7 * 24 * 3600) -> str:
+        email = email.strip().lower()
+        if not _EMAIL_RE.match(email):
+            raise AuthError("Enter a valid email address.")
+        token = secrets.token_urlsafe(32)
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("INSERT INTO org_invites VALUES (:tok,:oid,:email,:role,:now,:exp)"),
+                         {"tok": token, "oid": org_id, "email": email, "role": role,
+                          "now": time.time(), "exp": time.time() + ttl})
+        return token
+
+    def get_invite(self, token: str) -> dict | None:
+        with self._engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT i.*, o.name as org_name FROM org_invites i "
+                "JOIN orgs o ON o.id=i.org_id WHERE i.token=:tok AND i.expires_at>:now"),
+                {"tok": token, "now": time.time()}).fetchone()
+        if not row:
+            return None
+        return {"org_id": row.org_id, "org_name": row.org_name, "email": row.email,
+                "role": row.role, "expires_at": row.expires_at}
+
+    def accept_invite(self, token: str, user_id: str) -> dict:
+        invite = self.get_invite(token)
+        if not invite:
+            raise AuthError("Invite not found or expired.")
+        with self._lock, self._engine.begin() as conn:
+            existing = conn.execute(text(
+                "SELECT 1 FROM org_memberships WHERE org_id=:oid AND user_id=:uid"),
+                {"oid": invite["org_id"], "uid": user_id}).fetchone()
+            if not existing:
+                conn.execute(text("INSERT INTO org_memberships VALUES (:oid,:uid,:role,:ts)"),
+                             {"oid": invite["org_id"], "uid": user_id,
+                              "role": invite["role"], "ts": time.time()})
+            conn.execute(text("DELETE FROM org_invites WHERE token=:tok"), {"tok": token})
+        return invite
+
+    # ── Active workspace (personal ↔ org switcher) ───────────────────────────
+    def get_active_workspace(self, user_id: str) -> str | None:
+        """Return active org_id or None (= personal workspace)."""
+        with self._engine.connect() as conn:
+            row = conn.execute(text(
+                "SELECT active_org_id FROM user_preferences WHERE user_id=:uid"),
+                {"uid": user_id}).fetchone()
+        return row.active_org_id if row else None
+
+    def set_active_workspace(self, user_id: str, org_id: str | None) -> None:
+        """Set active workspace. org_id=None → personal."""
+        if org_id and not self.user_org_role(org_id, user_id):
+            raise AuthError("Not a member of this organisation.")
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO user_preferences (user_id, active_org_id) VALUES (:uid, :oid)
+                ON CONFLICT (user_id) DO UPDATE SET active_org_id=excluded.active_org_id
+            """), {"uid": user_id, "oid": org_id})
+
     def clear(self) -> None:
         """Test helper — wipe all users, sessions, tokens, and keys."""
         with self._lock, self._engine.begin() as conn:
             conn.execute(text("DELETE FROM sessions"))
             conn.execute(text("DELETE FROM api_tokens"))
             conn.execute(text("DELETE FROM user_keys"))
+            conn.execute(text("DELETE FROM org_memberships"))
+            conn.execute(text("DELETE FROM org_invites"))
+            conn.execute(text("DELETE FROM orgs"))
+            conn.execute(text("DELETE FROM user_preferences"))
             conn.execute(text("DELETE FROM users"))

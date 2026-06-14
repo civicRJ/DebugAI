@@ -676,6 +676,11 @@ def home():
     return _page("home.html")
 
 
+@app.get("/pricing")
+def pricing():
+    return _page("pricing.html")
+
+
 @app.get("/login")
 def login_page(request: Request):
     if current_user(request) is not None:

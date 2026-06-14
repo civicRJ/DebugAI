@@ -1,0 +1,80 @@
+---
+title: Introduction
+description: What DebugAI is, why it exists, and how it works.
+---
+
+## The problem
+
+LLM applications fail silently. A RAG pipeline returns confidently wrong answers.
+A Socratic tutor reveals the solution on the first turn. A chatbot invents policy
+details not present in any document. Traditional observability tools show you
+*that* something went wrong — but not *why*, and not *how to fix it*.
+
+## What DebugAI does
+
+DebugAI is a **deterministic LLM failure diagnosis engine**. Given a prompt, an
+output, and optionally the retrieved context, it computes 8 signals and runs 5
+failure detectors to produce a ranked diagnosis:
+
+```python
+from debugai import analyze
+
+result = analyze(
+    prompt="What is the refund policy for electronics?",
+    output="Electronics can be returned within 90 days for a full cash refund.",
+    chunks=["Store hours are 9am to 5pm.", "Parking is behind the building."],
+    similarity_scores=[0.42, 0.40],
+)
+
+print(result["primary"]["failure"])     # retrieval_failure
+print(result["primary"]["confidence"])  # 0.95
+print(result["primary"]["fix"])         # specific fix string
+```
+
+<Note>
+  Detection is 100% deterministic — no LLM, no randomness. The same input always
+  produces the same diagnosis. Safe to run in CI and pin in regression tests.
+</Note>
+
+## The five failure types
+
+| Failure | When | Severity |
+|---|---|---|
+| `retrieval_failure` | Retrieved chunks don't match the query | Critical |
+| `hallucination` | Output is ungrounded in the retrieved context | Critical |
+| `context_overflow` | Prompt fills the context window, truncating content | Critical |
+| `entity_gap` | Output claims specific entities absent from the KB | Warning |
+| `prompt_brittleness` | Same prompt produces inconsistent outputs | Warning |
+| `instruction_violation` | Output violates the system prompt's own rules | Critical |
+
+## Architecture
+
+```
+  Input (prompt + output + chunks)
+        │
+        ▼
+  ┌─────────────────┐
+  │  8 Signals       │  deterministic (spaCy, MiniLM, DeBERTa, math)
+  │  compute_signals │
+  └────────┬────────┘
+           │
+        ▼
+  ┌─────────────────┐
+  │  5 Detectors    │  deterministic rule engine
+  │  diagnose()     │
+  └────────┬────────┘
+           │
+        ▼
+  ┌─────────────────┐
+  │  LLM Explainer  │  probabilistic (optional, uses your key)
+  │  explain()      │
+  └─────────────────┘
+```
+
+## Install
+
+```bash
+pip install debugerai
+```
+
+Then continue to the [Quickstart](/quickstart).

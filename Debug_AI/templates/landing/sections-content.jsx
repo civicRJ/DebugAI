@@ -1,9 +1,7 @@
-/* DebugAI landing — content sections. Relies on icons (I) from sections-hero.jsx. */
+/* DebugAI landing — content sections (how it works, use cases, CTA, footer). */
 const I = window.DebugAIIcons;
 
-/* ============================================================
-   HOW IT WORKS
-   ============================================================ */
+/* ── How it works ─────────────────────────────────────────────────────────── */
 function HowItWorks() {
   const { Badge, SignalIndicator } = window.DesignSystem_90c6f1;
   const connector = (
@@ -15,24 +13,26 @@ function HowItWorks() {
     <section className="section" id="how">
       <div className="shell">
         <div className="section__head reveal">
-          <span className="ds-overline">The pipeline</span>
-          <h2>Signal in. Diagnosis out.</h2>
+          <span className="ds-overline">How it works</span>
+          <h2>One wrap. Every failure caught.</h2>
           <p>
-            DebugAI sits on your LLM calls and runs the same deterministic pass every time —
-            so the answer to a bad output is a verdict, not a vibe. Layers 1 and 2 use no LLM.
+            Detection is deterministic — no LLM, no guessing. The same input always
+            produces the same diagnosis. Pin it in CI, diff it across deploys.
           </p>
         </div>
         <div className="flow reveal">
           <div className="stage">
             <div className="stage__num">01</div>
-            {I.capture({ className: "stage__icon" })}
-            <h3>Capture the request</h3>
-            <p>Prompt, output, retrieved chunks, similarity scores, and runtime metadata. Every call becomes a structured signal set — one line with <code>wrap_llm()</code>.</p>
+            <svg className="stage__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 12h3l2.5-7 4 16L18 9l1.5 3H22" />
+            </svg>
+            <h3>Capture every call</h3>
+            <p>One line wraps your LLM client. Prompt, output, retrieved chunks, similarity scores, latency — all captured automatically in the background.</p>
             <div className="stage__vis">
               <div className="stream">
                 {["prompt", "retrieved_chunks", "similarity_scores", "llm_output"].map((n, i) => (
                   <div className="stream__row" key={n}>
-                    <span className="stream__dot" style={{ background: ["#3FB6CC", "#EF9F27", "#43C28A", "#EF9F27"][i] }} />
+                    <span className="stream__dot" style={{ background: ["#3FB6CC","#EF9F27","#43C28A","#EF9F27"][i] }} />
                     {n}<span className="stream__track" />
                   </div>
                 ))}
@@ -43,25 +43,30 @@ function HowItWorks() {
 
           <div className="stage">
             <div className="stage__num">02</div>
-            {I.correlate({ className: "stage__icon" })}
-            <h3>Compute &amp; classify</h3>
-            <p>Eight signals computed via small CPU models, then five deterministic detectors run — ranked into a primary failure plus secondary issues.</p>
+            <svg className="stage__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3 2 20h20L12 3Z" /><path d="M12 10v4" /><path d="M12 17.5h.01" />
+            </svg>
+            <h3>8 signals, 5 detectors</h3>
+            <p>A deterministic engine computes 8 metrics — overlap, entity coverage, similarity, contradiction, variance — then runs 5 failure detectors ranked by confidence.</p>
             <div className="stage__vis" style={{ display: "grid", gap: "8px" }}>
               <SignalIndicator name="retrieval.similarity" value="0.41" confidence={0.82} status="critical" />
-              <SignalIndicator name="entity.coverage" value="0.17" confidence={0.7} status="warn" />
+              <SignalIndicator name="context.overlap" value="0.11" confidence={0.9} status="critical" />
+              <SignalIndicator name="entity.coverage" value="0.00" confidence={1.0} status="critical" />
             </div>
             {connector}
           </div>
 
           <div className="stage">
             <div className="stage__num">03</div>
-            {I.diagnose({ className: "stage__icon" })}
-            <h3>Diagnose &amp; fix</h3>
-            <p>Out comes a ranked diagnosis: the failure type, a confidence score, the signal evidence, and the exact fix to apply.</p>
+            <svg className="stage__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m14.7 6.3 3 3M3 21l3.5-1 11-11a2.1 2.1 0 0 0-3-3l-11 11L3 21Z" /><path d="M15 7 9 13" />
+            </svg>
+            <h3>Named failure + specific fix</h3>
+            <p>Not "something went wrong." You get the failure type, a confidence score, the signal evidence, and an exact fix — re-chunking strategy, temperature cap, grounding rule.</p>
             <div className="stage__vis" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: "2rem", fontWeight: 700, color: "var(--amber-base)", lineHeight: 1 }}>95<span style={{ fontSize: "1rem" }}>%</span></div>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "2.2rem", fontWeight: 700, color: "var(--amber-base)", lineHeight: 1 }}>95<span style={{ fontSize: "1rem" }}>%</span></div>
               <div>
-                <Badge variant="critical" dot>retrieval failure</Badge>
+                <Badge variant="critical" dot>retrieval_failure</Badge>
                 <div className="ds-sm" style={{ color: "var(--text-tertiary)", marginTop: "6px", fontFamily: "var(--font-mono)" }}>similarity 0.41 &lt; 0.50</div>
               </div>
             </div>
@@ -72,120 +77,147 @@ function HowItWorks() {
   );
 }
 
-/* ============================================================
-   FEATURES
-   ============================================================ */
-function Features() {
-  const { CodeBlock, SignalIndicator, Badge } = window.DesignSystem_90c6f1;
-  const T = (c, t) => <span className={c}>{t}</span>;
-  const cliLines = [
-    [T("tok-punc", ">>> "), T("tok-fn", "analyze"), "(prompt, output, chunks=", T("tok-str", "..."), ")"],
-    [T("tok-com", "  → 8 signals computed · 2 anomalous")],
+/* ── Code snippet ─────────────────────────────────────────────────────────── */
+function CodeSection() {
+  const { CodeBlock, Badge } = window.DesignSystem_90c6f1;
+  const T = (c, t) => React.createElement("span", { className: c }, t);
+
+  const wrapLines = [
+    [T("tok-com", "# Wrap once — every call auto-diagnosed in the background")],
+    [T("tok-key", "from "), T("tok-fn", "openai"), T("tok-key", " import "), "OpenAI"],
+    [T("tok-key", "import "), T("tok-fn", "debugai")],
     [""],
-    [T("tok-key", "PRIMARY  "), T("tok-err", "retrieval_failure"), "  ", T("tok-num", "conf 0.95")],
-    [T("tok-punc", "  similarity "), T("tok-num", "0.41"), " < 0.50 — irrelevant chunks"],
-    [T("tok-key", "FIX      "), "re-chunk entity-aware · constrain prompt to context"],
+    ["client = ", T("tok-fn", "debugai"), ".wrap_llm(OpenAI(),"],
+    ["    on_diagnosis=", T("tok-key", "lambda"), " d: alert(d) ", T("tok-com", "# your sink")],
+    [")"],
+    [""],
+    [T("tok-com", "# Or run directly on any failing call")],
+    ["result = ", T("tok-fn", "debugai"), ".analyze("],
+    ["    prompt=user_prompt,"],
+    ["    output=llm_output,"],
+    ["    chunks=retrieved_docs,"],
+    [")"],
+    [""],
+    [T("tok-key", "print"), "(result[", T("tok-str", '"primary"'), "][", T("tok-str", '"failure"'), "])  ", T("tok-com", "# retrieval_failure")],
+    [T("tok-key", "print"), "(result[", T("tok-str", '"primary"'), "][", T("tok-str", '"fix"'), "])     ", T("tok-com", "# exact fix string")],
   ];
 
   return (
-    <section className="section" id="features">
+    <section className="section section--dark" id="install">
       <div className="shell">
         <div className="section__head reveal">
-          <span className="ds-overline">What you get</span>
-          <h2>Built like a debugger, not a dashboard.</h2>
-          <p>Every surface is high-signal and reproducible. No charts you have to interpret — just the diagnosis and the evidence behind it.</p>
+          <span className="ds-overline">Get started</span>
+          <h2>Two lines. Full coverage.</h2>
+          <p>No config files. No dashboards to set up first. Works with OpenAI, Anthropic, Gemini, Ollama, Groq, and any OpenAI-compatible endpoint.</p>
         </div>
-
-        <div className="features">
-          <div className="feat feat--wide reveal">
-            <div style={{ display: "flex", gap: "var(--space-6)", flexWrap: "wrap", alignItems: "center" }}>
-              <div style={{ flex: "1 1 280px", minWidth: 0 }}>
-                {I.determinism({ className: "feat__icon" })}
-                <h3 style={{ marginTop: "var(--space-3)" }}>Deterministic by design</h3>
-                <p style={{ marginTop: "var(--space-2)" }}>
-                  Detection uses no LLM — the same request always yields the same diagnosis,
-                  byte for byte. Pin a verdict in CI, diff it across prompt changes, and trust it
-                  in a postmortem. From Python or the dashboard.
-                </p>
-                <div style={{ marginTop: "var(--space-4)", display: "flex", gap: "var(--space-2)" }}>
-                  <Badge variant="ok" dot>reproducible</Badge>
-                  <Badge variant="trace" dot>CI-ready</Badge>
-                </div>
-              </div>
-              <div style={{ flex: "1 1 360px", minWidth: 0 }}>
-                <CodeBlock filename="terminal" language="sh" showLineNumbers={false}>
-                  {cliLines.map((parts, i) => (
-                    <span className={"code-block__ln" + (i === 3 ? " code-block__ln--hl" : "")} key={i}>
-                      {parts.map((p, j) =>
-                        React.isValidElement(p)
-                          ? React.cloneElement(p, { key: j })
-                          : <React.Fragment key={j}>{p || "\u00a0"}</React.Fragment>
-                      )}
-                    </span>
-                  ))}
-                </CodeBlock>
-              </div>
-            </div>
-          </div>
-
-          <div className="feat feat--third reveal">
-            {I.trace({ className: "feat__icon" })}
-            <h3>Signal-level breakdown</h3>
-            <p>See exactly which signals fired, how strongly, and why each one mattered to the verdict.</p>
-            <div className="feat__demo" style={{ display: "grid", gap: "8px" }}>
-              <SignalIndicator name="context.overlap" value="0.11" confidence={0.9} status="critical" />
-              <SignalIndicator name="output.variance" value="0.47" confidence={0.47} status="warn" />
-            </div>
-          </div>
-
-          <div className="feat feat--third reveal">
-            {I.shield({ className: "feat__icon" })}
-            <h3>Confidence scoring</h3>
-            <p>Every diagnosis ships a calibrated score. Triage by certainty, never by hunch.</p>
-            <div className="feat__demo" style={{ display: "flex", alignItems: "flex-end", gap: "10px" }}>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: "2.6rem", fontWeight: 700, lineHeight: 0.9, color: "var(--text-primary)" }}>92<span style={{ fontSize: "1.1rem", color: "var(--text-tertiary)" }}>%</span></div>
-              <div style={{ paddingBottom: "6px" }}><Badge variant="critical" dot>high</Badge></div>
-            </div>
-          </div>
-
-          <div className="feat feat--third reveal">
-            {I.fix({ className: "feat__icon" })}
-            <h3>Ships the fix</h3>
-            <p>Not just the cause — the patch. Apply inline, open a PR, or copy the diff.</p>
-            <div className="feat__demo">
-              <div className="diag__fix" style={{ marginTop: 0 }}>
-                <div className="diag__fix-head">{I.fix({ style: { width: 15, height: 15 } })}Suggested fix</div>
-                <div className="diag__fix-body">Add grounding constraints: answer only from <code>context</code>, cite sources.</div>
-              </div>
-            </div>
-          </div>
+        <div className="code-block-wrap reveal">
+          <CodeBlock filename="your_app.py" language="python" showLineNumbers={false}>
+            {wrapLines.map((parts, i) => (
+              <span className="code-block__ln" key={i}>
+                {parts.map((p, j) =>
+                  React.isValidElement(p) ? React.cloneElement(p, { key: j }) : React.createElement(React.Fragment, { key: j }, p || " ")
+                )}
+              </span>
+            ))}
+          </CodeBlock>
+        </div>
+        <div className="install-badges reveal">
+          <Badge variant="trace" dot>pip install debugerai</Badge>
+          <Badge variant="ok" dot>214 tests</Badge>
+          <Badge variant="neutral" dot>MIT license</Badge>
+          <Badge variant="neutral" dot>Python 3.11+</Badge>
         </div>
       </div>
     </section>
   );
 }
 
-/* ============================================================
-   CTA + FOOTER
-   ============================================================ */
+/* ── Use cases ────────────────────────────────────────────────────────────── */
+const USE_CASES = [
+  {
+    icon: "🗂️",
+    title: "RAG / document Q&A",
+    problem: "Your chatbot answers confidently from outside the retrieved context — inventing policy details, citing non-existent clauses.",
+    what: "DebugAI catches hallucination (0.95 confidence) and tells you exactly which retrieved chunks failed to ground the output.",
+    fix: "Add grounding constraints to the system prompt. Re-chunk with entity-aware strategy.",
+  },
+  {
+    icon: "🎓",
+    title: "Socratic tutors / education AI",
+    problem: "Your tutor reveals 80% of the answer in the first response, or asks the same guiding question reworded.",
+    what: "The instruction-adherence judge scores the output against the system prompt's pedagogical rules.",
+    fix: "Strengthened system prompt with strict Socratic constraints — verified by re-running and re-judging.",
+  },
+  {
+    icon: "💬",
+    title: "Customer support bots",
+    problem: "The bot gives the generic return policy when the user asked specifically about electronics exceptions.",
+    what: "Retrieval failure detected: similarity 0.41, entity coverage 0.00 — the retriever returned irrelevant chunks.",
+    fix: "Re-embed with domain-specific chunking. Add an 'information not found' fallback guard.",
+  },
+  {
+    icon: "🛠️",
+    title: "Code review copilots",
+    problem: "The same code snippet gets 'critical' severity in one run and 'medium' the next — inconsistent across reviewers.",
+    what: "Prompt brittleness detected: variance 0.60 with temperature 0.8.",
+    fix: "Lower temperature to 0.2. Add severity rubric to system prompt with few-shot examples.",
+  },
+];
+
+function UseCases() {
+  return (
+    <section className="section" id="usecases">
+      <div className="shell">
+        <div className="section__head reveal">
+          <span className="ds-overline">Use cases</span>
+          <h2>Every LLM failure has a name.</h2>
+          <p>DebugAI doesn't say "something went wrong." It tells you which of the five failure types occurred, why, and what to do.</p>
+        </div>
+        <div className="usecases-grid reveal">
+          {USE_CASES.map((u, i) => (
+            <div key={i} className="usecase-card">
+              <div className="usecase-card__icon">{u.icon}</div>
+              <h3 className="usecase-card__title">{u.title}</h3>
+              <p className="usecase-card__problem"><b>Problem:</b> {u.problem}</p>
+              <p className="usecase-card__what"><b>What DebugAI sees:</b> {u.what}</p>
+              <p className="usecase-card__fix"><b>Fix:</b> {u.fix}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ── CTA ──────────────────────────────────────────────────────────────────── */
 function CTA() {
   const { Button } = window.DesignSystem_90c6f1;
   return (
     <section className="section" id="cta">
       <div className="shell">
         <div className="cta reveal">
-          <h2>Diagnose your next LLM failure in seconds.</h2>
-          <p>Wrap your OpenAI or Anthropic client in one line and watch the diagnoses stream in. Free for solo developers, no card required.</p>
+          <h2>Stop guessing. Start diagnosing.</h2>
+          <p>
+            Free for solo developers. No credit card. Takes 2 minutes to see your first diagnosis.
+          </p>
           <div className="cta__actions">
-            <Button variant="primary" size="lg" onClick={() => (window.location.href = "/dashboard")}>Open the dashboard</Button>
-            <Button variant="secondary" size="lg" mono leadingIcon={I.github({ style: { width: 16, height: 16 } })}>Star on GitHub</Button>
+            <Button variant="primary" size="lg" onClick={() => window.location.href = "/register"}>
+              Start debugging free
+            </Button>
+            <Button variant="secondary" size="lg" onClick={() => window.location.href = "/pricing"}>
+              See pricing
+            </Button>
           </div>
+          <p style={{ marginTop: "var(--space-4)", fontSize: "var(--text-sm)", color: "var(--text-tertiary)" }}>
+            Or install the SDK: <code style={{ fontFamily: "var(--font-mono)", color: "var(--amber-300)" }}>pip install debugerai</code>
+          </p>
         </div>
       </div>
     </section>
   );
 }
 
+/* ── Footer ───────────────────────────────────────────────────────────────── */
 function Footer() {
   return (
     <footer className="footer">
@@ -194,9 +226,14 @@ function Footer() {
           {I.mark({ className: "brand__mark", style: { width: 22, height: 22 } })}
           <span>Debug<b>AI</b></span>
         </a>
-        <span className="ds-sm" style={{ marginLeft: "var(--space-4)" }}>© 2026 DebugAI · signal → diagnosis</span>
+        <span className="ds-sm" style={{ marginLeft: "var(--space-4)", color: "var(--text-tertiary)" }}>
+          © 2026 DebugAI · Built by engineers, for engineers
+        </span>
         <div className="footer__links">
-          <a href="/dashboard">Dashboard</a><a href="#how">How it works</a><a href="#features">Features</a><a href="#cta">Pricing</a>
+          <a href="/dashboard">Dashboard</a>
+          <a href="/pricing">Pricing</a>
+          <a href="https://github.com/civicRJ/DebugAI">GitHub</a>
+          <a href="#how">Docs</a>
         </div>
       </div>
     </footer>
@@ -204,6 +241,7 @@ function Footer() {
 }
 
 window.DebugAIHowItWorks = HowItWorks;
-window.DebugAIFeatures = Features;
+window.DebugAIFeatures = CodeSection;
 window.DebugAICTA = CTA;
 window.DebugAIFooter = Footer;
+window.DebugAIUseCases = UseCases;

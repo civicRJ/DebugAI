@@ -1,7 +1,7 @@
-/* DebugAI landing — section components. Assigned to window for main.jsx. */
+/* DebugAI landing — hero + nav. Conversion-focused for YC-stage growth. */
 const { useState, useEffect, useRef } = React;
 
-/* ---------- icons ---------- */
+/* ── Icons ────────────────────────────────────────────────────────────────── */
 const I = {
   mark: (p) => (
     <svg viewBox="0 0 32 32" fill="none" {...p}>
@@ -10,59 +10,15 @@ const I = {
       <circle cx="16" cy="17" r="2.4" fill="#EF9F27" />
     </svg>
   ),
-  capture: (p) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
-      <path d="M2 12h3l2.5-7 4 16L18 9l1.5 3H22" />
-    </svg>
-  ),
-  correlate: (p) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
-      <circle cx="6" cy="6" r="2.4" /><circle cx="18" cy="7" r="2.4" /><circle cx="12" cy="18" r="2.4" />
-      <path d="M7.6 7.6 10.4 16M16.6 8.7 13.3 16.5M8.2 6.4h7.4" />
-    </svg>
-  ),
-  diagnose: (p) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
-      <path d="M12 3 2 20h20L12 3Z" /><path d="M12 10v4" /><path d="M12 17h.01" />
-    </svg>
-  ),
-  determinism: (p) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
-      <rect x="3" y="3" width="18" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" />
-    </svg>
-  ),
-  trace: (p) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
-      <path d="M4 4v16M4 8h10a3 3 0 0 1 0 6H8m0 0 3-3m-3 3 3 3" />
-    </svg>
-  ),
-  fix: (p) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
-      <path d="m14.7 6.3 3 3M3 21l3.5-1 11-11a2.1 2.1 0 0 0-3-3l-11 11L3 21Z" /><path d="M15 7 9 13" />
-    </svg>
-  ),
-  shield: (p) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" {...p}>
-      <path d="M12 2 4 5v6c0 5 3.5 8.5 8 11 4.5-2.5 8-6 8-11V5l-8-3Z" /><path d="m9 12 2 2 4-4" />
-    </svg>
-  ),
-  github: (p) => (
-    <svg viewBox="0 0 24 24" fill="currentColor" {...p}>
-      <path d="M12 2C6.5 2 2 6.6 2 12.3c0 4.5 2.9 8.3 6.8 9.7.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.4-3.4-1.4-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.6 2.4 1.1 3 .8.1-.7.3-1.1.6-1.4-2.2-.3-4.6-1.1-4.6-5 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1a9.3 9.3 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.9-2.4 4.7-4.6 5 .4.3.7.9.7 1.9v2.8c0 .3.2.6.7.5 3.9-1.4 6.8-5.2 6.8-9.7C22 6.6 17.5 2 12 2Z" />
-    </svg>
-  ),
 };
 
-/* ============================================================
-   NAV
-   ============================================================ */
+/* ── Nav ──────────────────────────────────────────────────────────────────── */
 function Nav() {
   const { Button } = window.DesignSystem_90c6f1;
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const on = () => setScrolled(window.scrollY > 24);
-    on();
-    window.addEventListener("scroll", on, { passive: true });
+    on(); window.addEventListener("scroll", on, { passive: true });
     return () => window.removeEventListener("scroll", on);
   }, []);
   return (
@@ -74,114 +30,150 @@ function Nav() {
         </a>
         <div className="nav__links">
           <a href="#how">How it works</a>
-          <a href="#features">Features</a>
+          <a href="#usecases">Use cases</a>
+          <a href="/pricing">Pricing</a>
           <a href="/dashboard">Dashboard</a>
-          <a href="#cta">Pricing</a>
         </div>
         <div className="nav__spacer" />
         <div className="nav__actions">
-          <Button variant="ghost" size="sm" onClick={() => (window.location.href = "/login")}>Sign in</Button>
-          <Button variant="primary" size="sm" onClick={() => (window.location.href = "/register")}>Get started</Button>
+          <Button variant="ghost" size="sm" onClick={() => window.location.href = "/login"}>Sign in</Button>
+          <Button variant="primary" size="sm" onClick={() => window.location.href = "/register"}>Start free</Button>
         </div>
       </div>
     </nav>
   );
 }
 
-/* ============================================================
-   LIVE DIAGNOSIS DEMO  (signature animated element)
-   ============================================================ */
-const DEMO_SIGNALS = [
-  { name: "retrieval.similarity", value: "0.41", confidence: 0.82, status: "critical" },
-  { name: "context.overlap", value: "0.11", confidence: 0.9, status: "critical" },
-  { name: "entity.coverage", value: "0.00", confidence: 1.0, status: "critical" },
-  { name: "contradiction", value: "0.55", confidence: 0.55, status: "warn" },
+/* ── Inline playground demo ───────────────────────────────────────────────── */
+const DEMO_CASES = [
+  {
+    label: "RAG hallucination",
+    prompt: "What does Section 4 of the contract require?",
+    output: "Section 4 requires arbitration in Delaware under the Marbury Clause and a $50,000 penalty.",
+    chunks: ["Section 4 covers confidentiality.", "Governed by California law."],
+    scores: [0.66, 0.59],
+    temp: 0.75,
+    expected: { failure: "hallucination", confidence: 0.95, fix: "Add grounding constraints: answer only from provided context; cite sources; say 'not found' when unsupported." },
+  },
+  {
+    label: "Retrieval failure",
+    prompt: "What is the refund policy for electronics?",
+    output: "Electronics can be returned within 90 days for a full cash refund.",
+    chunks: ["Store hours are 9am to 5pm.", "Parking is behind the building."],
+    scores: [0.42, 0.40],
+    temp: 0.2,
+    expected: { failure: "retrieval_failure", confidence: 0.95, fix: "Re-chunk source documents with an entity-aware strategy and tune the retriever." },
+  },
+  {
+    label: "Prompt brittleness",
+    prompt: "Summarize the meeting notes.",
+    output: "The team agreed on Q4 timeline and assigned design review to platform group.",
+    chunks: ["Meeting: team agreed on Q4 timeline.", "Action: design review to platform group."],
+    scores: [0.85, 0.82],
+    temp: 0.9,
+    expected: { failure: "prompt_brittleness", confidence: 0.75, fix: "Lower temperature to 0.2, add explicit output-format template, and insert few-shot examples." },
+  },
 ];
 
-function DiagnosisDemo() {
-  const { SignalIndicator, DiagnosticCard, Button, Badge } = window.DesignSystem_90c6f1;
-  const [fired, setFired] = useState(0);
-  const [diagnosed, setDiagnosed] = useState(false);
-  const [cycle, setCycle] = useState(0);
-  const timers = useRef([]);
+const FAILURE_COLORS = {
+  hallucination: "var(--critical-base)",
+  retrieval_failure: "var(--critical-bright)",
+  prompt_brittleness: "var(--amber-base)",
+  entity_gap: "var(--amber-300)",
+  healthy: "var(--ok-base)",
+};
+const FAILURE_LABELS = {
+  hallucination: "Hallucination",
+  retrieval_failure: "Retrieval failure",
+  prompt_brittleness: "Prompt brittleness",
+  entity_gap: "Entity gap",
+};
 
-  useEffect(() => {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    setFired(0);
-    setDiagnosed(false);
-    const at = (ms, fn) => timers.current.push(setTimeout(fn, ms));
-    DEMO_SIGNALS.forEach((_, i) => at(550 + i * 620, () => setFired(i + 1)));
-    at(550 + DEMO_SIGNALS.length * 620 + 650, () => setDiagnosed(true));
-    at(550 + DEMO_SIGNALS.length * 620 + 650 + 5200, () => setCycle((c) => c + 1));
-    return () => timers.current.forEach(clearTimeout);
-  }, [cycle]);
+function HeroDemo() {
+  const { Badge, Button } = window.DesignSystem_90c6f1;
+  const [active, setActive] = useState(0);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
 
-  const fix = (
-    <React.Fragment>
-      Retrieval returned irrelevant chunks. Re-chunk the source docs with an
-      entity-aware strategy and constrain the prompt to answer only from
-      provided context — say <code>not found</code> when unsupported.
-    </React.Fragment>
-  );
+  async function run(idx) {
+    const c = DEMO_CASES[idx];
+    setRunning(true); setResult(null); setError(null);
+    try {
+      const r = await fetch("/api/playground", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: c.prompt, output: c.output,
+          chunks: c.chunks, similarity_scores: c.scores, temperature: c.temp,
+          run_fix: false,
+        }),
+      });
+      if (r.status === 401) {
+        // Not logged in — show the pre-computed expected result
+        setResult({ ui: { id: c.expected.failure, title: FAILURE_LABELS[c.expected.failure],
+          severity: "critical", confidence: c.expected.confidence,
+          explanation: c.expected.fix }, diagnosis: { healthy: false } });
+        return;
+      }
+      const data = await r.json();
+      setResult(data);
+    } catch (_) {
+      setResult({ ui: { id: DEMO_CASES[active].expected.failure,
+        title: FAILURE_LABELS[DEMO_CASES[active].expected.failure],
+        severity: "critical", confidence: DEMO_CASES[active].expected.confidence,
+        explanation: DEMO_CASES[active].expected.fix }, diagnosis: { healthy: false } });
+    } finally { setRunning(false); }
+  }
+
+  useEffect(() => { run(active); }, [active]);
+
+  const c = DEMO_CASES[active];
+  const ui = result && result.ui;
 
   return (
-    <div className="demo">
-      <div className="demo__bar">
-        {I.mark({ style: { width: 16, height: 16 } })}
-        <span className="ds-sm" style={{ color: "var(--text-secondary)" }}>debugai · session</span>
-        <span className="demo__live">LIVE</span>
-      </div>
-      <div className="demo__req">
-        <span className="method">RAG</span>
-        <span className="path">/support/answer</span>
-        <span className="trace">0x9af2c1</span>
-      </div>
-      {/* Both states are always mounted and overlaid in the same grid cell, so
-          the panel is sized to the taller one and never reflows the page. */}
-      <div className="demo__body demo__stack">
-        <div className={"demo__state" + (diagnosed ? " is-faded" : "")} aria-hidden={diagnosed}>
-          <div className="demo__phase-label">
-            <Badge variant="warn" dot>analyzing</Badge>
-            <span className="ds-overline" style={{ color: "var(--text-tertiary)" }}>
-              {fired}/{DEMO_SIGNALS.length} signals
-            </span>
-          </div>
-          <div className="demo__signals">
-            {DEMO_SIGNALS.map((s, i) => (
-              <div key={i}>
-                <SignalIndicator {...s} state={!diagnosed && i < fired ? "fired" : "pending"} />
-              </div>
-            ))}
-          </div>
+    <div className="hero-demo">
+      <div className="hero-demo__bar">
+        {I.mark({ style: { width: 14, height: 14 } })}
+        <span className="hero-demo__title">Live diagnosis</span>
+        <div className="hero-demo__tabs">
+          {DEMO_CASES.map((d, i) => (
+            <button key={i} className={"hero-demo__tab" + (active === i ? " active" : "")}
+              onClick={() => setActive(i)}>{d.label}</button>
+          ))}
         </div>
-        <div className={"demo__state demo__diag" + (diagnosed ? "" : " is-faded")} aria-hidden={!diagnosed}>
-          <DiagnosticCard
-            severity="critical"
-            id="retrieval_failure · trace 0x9af2c1"
-            title="Retrieved chunks don't ground the answer"
-            location={'mean similarity <b>0.41 &lt; 0.50</b> · entity coverage 0.00'}
-            confidence={0.95}
-            signals={DEMO_SIGNALS}
-            fix={fix}
-            actions={
-              <React.Fragment>
-                <Button variant="primary" size="sm" onClick={() => (window.location.href = "/dashboard")}>Open in dashboard</Button>
-                <Button variant="secondary" size="sm">View signals</Button>
-                <span className="diag__foot-spacer" />
-                <Button variant="ghost" size="sm">Dismiss</Button>
-              </React.Fragment>
-            }
-          />
+      </div>
+      <div className="hero-demo__body">
+        <div className="hero-demo__input">
+          <div className="hero-demo__label">PROMPT</div>
+          <div className="hero-demo__text">{c.prompt}</div>
+          <div className="hero-demo__label" style={{ marginTop: "var(--space-3)" }}>LLM OUTPUT</div>
+          <div className="hero-demo__text hero-demo__text--output">{c.output}</div>
+        </div>
+        <div className="hero-demo__arrow">→</div>
+        <div className="hero-demo__result">
+          {running ? (
+            <div className="hero-demo__loading">
+              <div className="loading-dots"><span/><span/><span/></div>
+              <span style={{ color: "var(--text-tertiary)", fontSize: "var(--text-xs)" }}>Analyzing…</span>
+            </div>
+          ) : ui ? (
+            <div>
+              <div className="hero-demo__verdict" style={{ background: FAILURE_COLORS[ui.id] || "var(--critical-base)" }}>
+                {FAILURE_LABELS[ui.id] || ui.id} · {ui.confidence != null ? Math.round(ui.confidence * 100) + "%" : ""}
+              </div>
+              <div className="hero-demo__fix">{ui.explanation}</div>
+            </div>
+          ) : (
+            <div className="hero-demo__empty">Select a case →</div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-/* ============================================================
-   HERO
-   ============================================================ */
+/* ── Hero ─────────────────────────────────────────────────────────────────── */
 function Hero() {
   const { Button, Badge } = window.DesignSystem_90c6f1;
   return (
@@ -192,34 +184,45 @@ function Hero() {
         </video>
       </div>
       <div className="hero__scrim" />
-      <div className="hero__grid">
-        <div>
-          <span className="hero__eyebrow">
-            <Badge variant="ok" dot>v3.0</Badge>
+      <div className="hero__content">
+        <div className="hero__left">
+          <div className="hero__eyebrow">
+            <Badge variant="ok" dot>Open beta</Badge>
             <span className="ds-sm ds-text-secondary">Deterministic LLM failure diagnosis</span>
-          </span>
-          <h1>Stop guessing why<br />the <span className="sig">LLM</span> failed.</h1>
-          <p className="hero__lead">
-            DebugAI turns every LLM call into a ranked, reproducible diagnosis — eight
-            deterministic signals, five failure detectors, scored by confidence and
-            shipped with the exact fix. Retrieval failure, hallucination, prompt
-            brittleness — named, not guessed.
-          </p>
-          <div className="hero__cta">
-            <Button variant="primary" size="lg" onClick={() => (window.location.href = "/dashboard")} trailingIcon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            }>Open the dashboard</Button>
-            <Button variant="secondary" size="lg" mono leadingIcon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m4 17 6-6-6-6M12 19h8" /></svg>
-            }>pip install debugai</Button>
           </div>
-          <div className="hero__stats">
-            <div className="hero__stat"><div className="n">8</div><div className="l">signals / request</div></div>
-            <div className="hero__stat"><div className="n">5</div><div className="l">failure detectors</div></div>
-            <div className="hero__stat"><div className="n">&lt;5ms</div><div className="l">healthy-path latency</div></div>
+          <h1 className="hero__h1">
+            LLM apps fail<br />
+            <span className="sig">silently.</span>
+          </h1>
+          <p className="hero__lead">
+            DebugAI names the failure, explains why, and fixes it — in seconds.
+            Drop one line into your stack. Every bad output gets a root cause,
+            a confidence score, and a specific fix.
+          </p>
+          <div className="hero__proof">
+            <div className="hero__proof-item"><b>8</b> deterministic signals</div>
+            <div className="hero__proof-sep" />
+            <div className="hero__proof-item"><b>5</b> failure detectors</div>
+            <div className="hero__proof-sep" />
+            <div className="hero__proof-item"><b>&lt;5ms</b> healthy-path overhead</div>
+          </div>
+          <div className="hero__cta">
+            <Button variant="primary" size="lg"
+              onClick={() => window.location.href = "/register"}>
+              Start debugging free
+            </Button>
+            <Button variant="secondary" size="lg" mono
+              onClick={() => window.location.href = "https://github.com/civicRJ/DebugAI"}>
+              View on GitHub
+            </Button>
+          </div>
+          <div className="hero__install">
+            <code>pip install debugerai</code>
           </div>
         </div>
-        <DiagnosisDemo />
+        <div className="hero__right">
+          <HeroDemo />
+        </div>
       </div>
     </header>
   );

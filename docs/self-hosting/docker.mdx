@@ -1,0 +1,87 @@
+---
+title: Self-hosting with Docker
+description: Run the full DebugAI stack (web app + PostgreSQL + Caddy TLS) on your own server.
+---
+
+## Prerequisites
+
+- A Linux server with Docker installed
+- A domain name pointed at the server's IP (for auto-TLS)
+
+## 1. Clone and configure
+
+```bash
+git clone https://github.com/civicRJ/DebugAI
+cd DebugAI
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```bash
+POSTGRES_PASSWORD=<strong-random-password>
+DEBUGAI_DOMAIN=yourdomain.com      # auto-provisions TLS via Caddy + Let's Encrypt
+DEBUGAI_TRUST_PROXY=1              # always set when behind Caddy/nginx
+DEBUGAI_KEY_SECRET=<64-char-hex>   # encrypts user API keys at rest
+
+# Optional — for LLM features (users can also set their own keys in-app)
+# OPENAI_API_KEY=sk-...
+# ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Generate `DEBUGAI_KEY_SECRET`:
+```bash
+python3 -c "import secrets; print(secrets.token_hex(32))"
+```
+
+## 2. Start everything
+
+```bash
+docker compose up -d --build
+```
+
+This starts:
+- **PostgreSQL 16** (users, diagnoses, traces, calibration)
+- **DebugAI** (FastAPI + pre-baked ML models)
+- **Caddy** (reverse proxy + auto-TLS via Let's Encrypt)
+
+First build takes 5–10 minutes (downloads ML models). Subsequent starts are instant.
+
+## 3. Verify
+
+```bash
+curl https://yourdomain.com/api/health
+# {"status": "ok"}
+```
+
+Open `https://yourdomain.com` — register your account and start diagnosing.
+
+## Configuration reference
+
+| Variable | Default | Description |
+|---|---|---|
+| `POSTGRES_PASSWORD` | `debugai_dev` | PostgreSQL password |
+| `DEBUGAI_DOMAIN` | `localhost` | Domain for Caddy TLS |
+| `DEBUGAI_TRUST_PROXY` | unset | Set to `1` behind any proxy |
+| `DEBUGAI_KEY_SECRET` | derived | Fernet key for encrypting user API keys |
+| `DEBUGAI_RATE_LIMIT` | `240` | Max /api/* requests/min/IP |
+| `DEBUGAI_AUTH_RATE_LIMIT` | `30` | Max login/register requests/min/IP |
+| `HF_TOKEN` | unset | HuggingFace token (higher rate limits for NLI API) |
+
+## Update
+
+```bash
+git pull && docker compose up -d --build
+```
+
+Data (users, diagnoses, traces, calibration) persists in Docker volumes across updates.
+
+## Free-tier deployment (Render)
+
+If you don't have a server, deploy to [Render](https://render.com) for free:
+1. Fork the repo
+2. New → Blueprint → connect your fork
+3. Add `DEBUGAI_KEY_SECRET` in the Environment tab
+4. Deploy
+
+See [Render deployment guide](/self-hosting/render) for details.

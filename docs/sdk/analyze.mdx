@@ -1,0 +1,123 @@
+---
+title: analyze()
+description: The core diagnosis function — runs the full signal + detector pipeline.
+---
+
+## Signature
+
+```python
+debugai.analyze(
+    prompt: str,
+    output: str,
+    *,
+    system_prompt: str = "",
+    chunks: list[str] | None = None,
+    similarity_scores: list[float] | None = None,
+    retrieval_query: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    context_window: int | None = None,
+    latency_ms: int | None = None,
+    token_usage: dict | None = None,
+    thresholds: Thresholds = DEFAULT_THRESHOLDS,
+    explain_with_llm: bool = False,
+    judge: bool = False,
+    openai_api_key: str | None = None,
+    anthropic_api_key: str | None = None,
+    lazy: bool = False,
+) -> dict
+```
+
+## Parameters
+
+<ParamField path="prompt" type="string" required>
+  The user's input to the LLM.
+</ParamField>
+
+<ParamField path="output" type="string" required>
+  The LLM's response.
+</ParamField>
+
+<ParamField path="chunks" type="list[str]">
+  Retrieved documents/chunks (RAG context). Unlocks the retrieval, overlap, entity coverage, and contradiction signals.
+</ParamField>
+
+<ParamField path="similarity_scores" type="list[float]">
+  Cosine similarity scores per chunk from your vector store. If not provided and chunks are present, scores are recomputed from the embedder.
+</ParamField>
+
+<ParamField path="temperature" type="float">
+  Sampling temperature used for the call. Powers the variance proxy signal.
+</ParamField>
+
+<ParamField path="context_window" type="int">
+  Model's max context window in tokens. Enables the context-overflow detector.
+</ParamField>
+
+<ParamField path="explain_with_llm" type="bool" default="false">
+  Use an LLM (Claude Haiku by default) to generate a human-readable explanation and fix. Requires `ANTHROPIC_API_KEY` or `anthropic_api_key`.
+</ParamField>
+
+<ParamField path="judge" type="bool" default="false">
+  Run the instruction-adherence judge (only meaningful when `system_prompt` is provided). Requires `OPENAI_API_KEY` or `openai_api_key`.
+</ParamField>
+
+<ParamField path="lazy" type="bool" default="false">
+  Skip expensive signals (embeddings, NER, NLI) if cheap signals are healthy. ~70% of requests skip Stage 3.
+</ParamField>
+
+## Return value
+
+```json
+{
+  "healthy": false,
+  "primary": {
+    "failure": "retrieval_failure",
+    "confidence": 0.95,
+    "severity": "critical",
+    "root_cause": "Mean retrieval similarity 0.41 is below 0.50...",
+    "fix": "Re-chunk source documents with an entity-aware strategy...",
+    "evidence": { "similarity": 0.41, "entity_coverage": 0.0, "overlap": 0.11 }
+  },
+  "secondary": [],
+  "signals": {
+    "overlap": 0.11, "entity_coverage": 0.0, "similarity": 0.41,
+    "contradiction": 0.52, "variance": 0.13, "latency_ms": 0,
+    "token_ratio": 0.0, "context_ratio": 0.0
+  },
+  "explanation": "Mean retrieval similarity 0.41 is below 0.50..."
+}
+```
+
+## Examples
+
+<CodeGroup>
+```python Minimal
+from debugai import analyze
+
+result = analyze(prompt="...", output="...")
+print(result["healthy"])          # True or False
+print(result["primary"])          # None if healthy
+```
+
+```python Full RAG
+result = analyze(
+    prompt="What is the cancellation policy?",
+    output="You can cancel anytime for a full refund.",
+    chunks=retrieved_docs,
+    similarity_scores=scores,
+    temperature=0.7,
+    context_window=8192,
+)
+```
+
+```python With LLM judge
+result = analyze(
+    prompt=user_query,
+    output=llm_response,
+    system_prompt=tutor_rules,
+    judge=True,
+    openai_api_key="sk-...",  # or set OPENAI_API_KEY env var
+)
+```
+</CodeGroup>

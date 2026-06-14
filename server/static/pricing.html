@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DebugAI — Pricing</title>
+<meta name="description" content="Simple, transparent pricing. Start debugging for free." />
+<link rel="stylesheet" href="/ds/styles.css" />
+<link rel="stylesheet" href="/static/dashboard.css" />
+<link rel="stylesheet" href="/static/pricing.css" />
+</head>
+<body>
+<div id="pricing-root">
+  <nav class="pricing-nav">
+    <a class="pricing-nav__brand" href="/">
+      <svg width="22" height="22" viewBox="0 0 32 32" fill="none">
+        <path d="M16 2 4 9v14l12 7 12-7V9L16 2Z" stroke="currentColor" stroke-width="1.5" opacity="0.35"/>
+        <path d="M16 9v8m0 0 6-3.5M16 17l-6-3.5M16 17v6" stroke="#EF9F27" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="16" cy="17" r="2.4" fill="#EF9F27"/>
+      </svg>
+      <span>Debug<b>AI</b></span>
+    </a>
+    <a class="pricing-nav__back" href="/">← Back</a>
+  </nav>
+
+  <main class="pricing-main">
+    <div class="pricing-header">
+      <div class="pricing-header__badge">Pricing</div>
+      <h1>Start free. Scale when you need to.</h1>
+      <p>Every plan includes the full diagnosis engine — 8 signals, 5 detectors, fix agents.
+         LLM features (judge, explainer) use your own API key.</p>
+    </div>
+
+    <div class="pricing-grid">
+      <!-- Free -->
+      <div class="pricing-card">
+        <div class="pricing-card__name">Free</div>
+        <div class="pricing-card__price">$0<span>/month</span></div>
+        <div class="pricing-card__desc">For solo developers evaluating DebugAI.</div>
+        <ul class="pricing-card__features">
+          <li>✓ 500 diagnoses / month</li>
+          <li>✓ Full diagnosis engine</li>
+          <li>✓ SDK + CLI</li>
+          <li>✓ Dashboard + traces</li>
+          <li>✓ 1 user</li>
+          <li class="dim">✗ Fix agents</li>
+          <li class="dim">✗ API tokens</li>
+        </ul>
+        <a href="/register" class="pricing-card__cta pricing-card__cta--secondary">Get started</a>
+      </div>
+
+      <!-- Pro -->
+      <div class="pricing-card pricing-card--featured">
+        <div class="pricing-card__badge">Most popular</div>
+        <div class="pricing-card__name">Pro</div>
+        <div class="pricing-card__price">$29<span>/month</span></div>
+        <div class="pricing-card__desc">For individual engineers in production.</div>
+        <ul class="pricing-card__features">
+          <li>✓ Unlimited diagnoses</li>
+          <li>✓ Full diagnosis engine</li>
+          <li>✓ Fix agents + verification</li>
+          <li>✓ SDK + CLI + API tokens</li>
+          <li>✓ Dashboard + traces + sessions</li>
+          <li>✓ 5 users</li>
+          <li>✓ Email support</li>
+        </ul>
+        <a href="/register" class="pricing-card__cta pricing-card__cta--primary">Start free trial</a>
+      </div>
+
+      <!-- Team -->
+      <div class="pricing-card">
+        <div class="pricing-card__name">Team</div>
+        <div class="pricing-card__price">$99<span>/month</span></div>
+        <div class="pricing-card__desc">For engineering teams shipping LLM products.</div>
+        <ul class="pricing-card__features">
+          <li>✓ Everything in Pro</li>
+          <li>✓ Unlimited users</li>
+          <li>✓ Shared org workspace</li>
+          <li>✓ Invite team members</li>
+          <li>✓ Usage analytics</li>
+          <li>✓ Priority support</li>
+          <li>✓ Adaptive calibration</li>
+        </ul>
+        <a href="/register" class="pricing-card__cta pricing-card__cta--secondary">Start free trial</a>
+      </div>
+
+      <!-- Enterprise -->
+      <div class="pricing-card">
+        <div class="pricing-card__name">Enterprise</div>
+        <div class="pricing-card__price">Custom</div>
+        <div class="pricing-card__desc">For companies deploying LLMs at scale.</div>
+        <ul class="pricing-card__features">
+          <li>✓ Everything in Team</li>
+          <li>✓ SSO / SAML</li>
+          <li>✓ Audit logs</li>
+          <li>✓ SLA guarantee</li>
+          <li>✓ Dedicated support</li>
+          <li>✓ On-prem / VPC deploy</li>
+          <li>✓ Custom integrations</li>
+        </ul>
+        <a href="mailto:rishabhjain29122000@gmail.com?subject=DebugAI Enterprise" class="pricing-card__cta pricing-card__cta--secondary">Contact us</a>
+      </div>
+    </div>
+
+    <!-- Value framing -->
+    <div class="pricing-value">
+      <h2>How to think about the price</h2>
+      <p>
+        A single debugging session where a senior engineer traces a hallucination back to a chunking
+        strategy takes <b>1–3 hours at $150–300/hr</b>. That's $150–$900 per incident.
+        DebugAI catches the same failure in <b>milliseconds</b> and explains exactly what to fix.
+        The Pro plan pays for itself in one avoided debugging session.
+      </p>
+    </div>
+
+    <!-- FAQ -->
+    <div class="pricing-faq">
+      <h2>Common questions</h2>
+      <div class="pricing-faq__grid">
+        <div class="pricing-faq__item">
+          <h3>Do I need an API key?</h3>
+          <p>The core diagnosis engine (8 signals, 5 detectors) is fully deterministic — no LLM, no API key required. LLM features (instruction judge, explainer, fix re-runs) use your own OpenAI or Anthropic key, set in your Account settings.</p>
+        </div>
+        <div class="pricing-faq__item">
+          <h3>How does the free tier work?</h3>
+          <p>500 diagnoses per calendar month. No credit card required. The counter resets on the 1st of each month. You can see your usage in the dashboard.</p>
+        </div>
+        <div class="pricing-faq__item">
+          <h3>What counts as a diagnosis?</h3>
+          <p>One call to <code>analyze()</code> or one request through <code>wrap_llm()</code> that runs the full signal + detector pipeline. Healthy requests still count. Playground previews do not count.</p>
+        </div>
+        <div class="pricing-faq__item">
+          <h3>Can I self-host?</h3>
+          <p>Yes. The full stack is open source on GitHub. Run <code>docker compose up</code> — PostgreSQL + Caddy auto-TLS included. Self-hosted is free forever.</p>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <footer class="pricing-footer">
+    <a href="/">← Back to DebugAI</a>
+    <span>Questions? <a href="mailto:rishabhjain29122000@gmail.com">Email us</a></span>
+  </footer>
+</div>
+</body>
+</html>

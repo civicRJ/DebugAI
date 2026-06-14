@@ -1,0 +1,54 @@
+---
+title: Failure Types
+description: The five (plus one) failures DebugAI detects and what each means.
+---
+
+DebugAI's rule engine runs all detectors on every request, ranks them by confidence, and returns a primary failure plus any secondary issues. Detection is **fully deterministic** — no LLM, no randomness.
+
+## The five core detectors
+
+| Failure | Checked | Severity | What it catches |
+|---|---|---|---|
+| `context_overflow` | 1st | Critical | Prompt fills the context window; content is truncated |
+| `retrieval_failure` | 2nd | Critical | Retrieved chunks don't match the query |
+| `entity_gap` | 3rd | Warning | Output mentions entities absent from the knowledge base |
+| `hallucination` | 4th | Critical | Output is ungrounded in the retrieved context |
+| `prompt_brittleness` | 5th | Warning | Same prompt produces inconsistent outputs |
+
+Detectors run in this order because earlier failures make later signals unreliable (e.g. if retrieval failed, checking for hallucination in the output is misleading).
+
+## The sixth: instruction_violation
+
+Detected by the **LLM-as-judge** (optional, requires an OpenAI key):
+
+| Failure | Severity | What it catches |
+|---|---|---|
+| `instruction_violation` | Critical | Output breaks the system prompt's own rules |
+
+Common violations for Socratic tutors: revealed the answer too early, asked more than one question, re-asked the same question reworded, or paraphrased the student's input.
+
+## Confidence scores
+
+Each detector reports a confidence from 0–1. The score is based on how many signals fired and how strongly:
+
+- **0.95** → gate fired + multiple strong boosts (very reliable)
+- **0.75** → gate fired + one moderate boost
+- **0.60** → gate barely fired (may be a borderline case)
+
+## Reading a result
+
+```python
+result = analyze(prompt=..., output=..., chunks=..., similarity_scores=...)
+
+if not result["healthy"]:
+    p = result["primary"]
+    print(p["failure"])     # e.g. "retrieval_failure"
+    print(p["confidence"])  # e.g. 0.95
+    print(p["severity"])    # "critical" or "warning"
+    print(p["fix"])         # specific, actionable fix string
+    print(p["evidence"])    # which signals triggered it
+
+    # Multiple failures can co-occur:
+    for s in result["secondary"]:
+        print(s["failure"], s["confidence"])
+```

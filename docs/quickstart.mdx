@@ -1,0 +1,92 @@
+---
+title: Quickstart
+description: From zero to your first diagnosis in 2 minutes.
+---
+
+## 1. Install
+
+```bash
+pip install debugerai
+```
+
+For the spaCy NER model (improves entity coverage signal):
+```bash
+python -m spacy download en_core_web_sm
+```
+
+## 2. Diagnose your first failure
+
+```python
+from debugai import analyze
+
+result = analyze(
+    prompt="What does Section 4 of the contract require?",
+    output="Section 4 requires arbitration in Delaware under the Marbury Clause.",
+    chunks=["Section 4 covers confidentiality.", "Governed by California law."],
+    similarity_scores=[0.66, 0.59],
+    temperature=0.75,
+    explain_with_llm=False,
+)
+
+print(result["primary"]["failure"])     # hallucination
+print(result["primary"]["confidence"])  # 0.95
+print(result["primary"]["fix"])
+# "Add grounding constraints: answer only from provided context;
+#  cite sources; say 'not found' when unsupported."
+```
+
+## 3. Wrap your LLM client
+
+Drop one line into your existing code:
+
+```python
+from openai import OpenAI
+import debugai
+
+client = debugai.wrap_llm(
+    OpenAI(),
+    on_diagnosis=lambda d: print("⚠️", d["primary"]["failure"]) if not d["healthy"] else None,
+)
+
+# Call your LLM exactly as before — nothing else changes
+resp = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "What is our refund policy?"}],
+    # Attach RAG context for full signal coverage:
+    debugai_chunks=retrieved_docs,
+    debugai_similarity_scores=scores,
+)
+# Diagnosis runs in the background — zero added latency
+```
+
+## 4. Use the universal completion API
+
+Works with any provider — same call, any model:
+
+```python
+import debugai
+
+resp = debugai.completion("gemini-2.0-flash", messages=[...])
+resp = debugai.completion("ollama/qwen2.5", messages=[...])
+resp = debugai.completion("groq/llama-3.3-70b-versatile", messages=[...])
+
+print(resp.text, resp.cost_usd, resp.latency_ms)
+```
+
+## 5. Check metrics
+
+```python
+print(debugai.metrics.snapshot())
+# {
+#   "requests": 47, "failures": 3,
+#   "cost_usd": 0.0042, "latency_p95_ms": 342,
+#   "by_model": {"gpt-4o": {"requests": 47, "cost_usd": 0.0042, ...}}
+# }
+```
+
+## Next steps
+
+- [Configure `DebugAIConfig`](/sdk/config) — control what runs per request
+- [Providers](/providers/openai) — OpenAI, Anthropic, Gemini, Ollama, Groq, and more
+- [Failure types](/failures/overview) — what each detector catches
+- [Self-hosting the dashboard](/self-hosting/docker) — full web app

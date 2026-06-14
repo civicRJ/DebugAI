@@ -380,7 +380,7 @@ def api_config():
     PostHog project key is write-only (safe to expose in JS)."""
     return {
         "posthogKey": os.environ.get("POSTHOG_KEY", ""),
-        "posthogHost": os.environ.get("POSTHOG_HOST", "https://app.posthog.com"),
+        "posthogHost": os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com"),
     }
 
 

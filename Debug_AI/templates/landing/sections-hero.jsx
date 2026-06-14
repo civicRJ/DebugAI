@@ -44,129 +44,140 @@ function Nav() {
   );
 }
 
-/* ── Inline playground demo ───────────────────────────────────────────────── */
+/* ── Animated diagnosis demo (fully client-side, no auth required) ───────── */
 const DEMO_CASES = [
   {
     label: "RAG hallucination",
-    prompt: "What does Section 4 of the contract require?",
-    output: "Section 4 requires arbitration in Delaware under the Marbury Clause and a $50,000 penalty.",
-    chunks: ["Section 4 covers confidentiality.", "Governed by California law."],
-    scores: [0.66, 0.59],
-    temp: 0.75,
-    expected: { failure: "hallucination", confidence: 0.95, fix: "Add grounding constraints: answer only from provided context; cite sources; say 'not found' when unsupported." },
+    request: "What does Section 4 require?",
+    signals: [
+      { name: "retrieval.similarity", value: "0.62", confidence: 0.62, status: "trace" },
+      { name: "context.overlap",      value: "0.33", confidence: 0.9,  status: "critical" },
+      { name: "entity.coverage",      value: "0.25", confidence: 0.8,  status: "critical" },
+      { name: "contradiction",        value: "0.96", confidence: 0.96, status: "critical" },
+    ],
+    failure: "hallucination",
+    confidence: 0.95,
+    fix: "Answer only from provided context. Say \"not found\" when unsupported.",
   },
   {
     label: "Retrieval failure",
-    prompt: "What is the refund policy for electronics?",
-    output: "Electronics can be returned within 90 days for a full cash refund.",
-    chunks: ["Store hours are 9am to 5pm.", "Parking is behind the building."],
-    scores: [0.42, 0.40],
-    temp: 0.2,
-    expected: { failure: "retrieval_failure", confidence: 0.95, fix: "Re-chunk source documents with an entity-aware strategy and tune the retriever." },
+    request: "What is the refund policy?",
+    signals: [
+      { name: "retrieval.similarity", value: "0.41", confidence: 0.82, status: "critical" },
+      { name: "context.overlap",      value: "0.11", confidence: 0.9,  status: "critical" },
+      { name: "entity.coverage",      value: "0.00", confidence: 1.0,  status: "critical" },
+      { name: "contradiction",        value: "0.08", confidence: 0.08, status: "trace"    },
+    ],
+    failure: "retrieval_failure",
+    confidence: 0.95,
+    fix: "Re-chunk with entity-aware strategy. Tune the retriever embedding model.",
   },
   {
     label: "Prompt brittleness",
-    prompt: "Summarize the meeting notes.",
-    output: "The team agreed on Q4 timeline and assigned design review to platform group.",
-    chunks: ["Meeting: team agreed on Q4 timeline.", "Action: design review to platform group."],
-    scores: [0.85, 0.82],
-    temp: 0.9,
-    expected: { failure: "prompt_brittleness", confidence: 0.75, fix: "Lower temperature to 0.2, add explicit output-format template, and insert few-shot examples." },
+    request: "Rate the severity of this issue.",
+    signals: [
+      { name: "retrieval.similarity", value: "0.83", confidence: 0.83, status: "trace"    },
+      { name: "context.overlap",      value: "0.81", confidence: 0.81, status: "trace"    },
+      { name: "entity.coverage",      value: "1.00", confidence: 1.0,  status: "trace"    },
+      { name: "output.variance",      value: "0.60", confidence: 0.60, status: "critical" },
+    ],
+    failure: "prompt_brittleness",
+    confidence: 0.75,
+    fix: "Lower temperature to 0.2. Add a severity rubric with few-shot examples.",
   },
 ];
 
-const FAILURE_COLORS = {
-  hallucination: "var(--critical-base)",
-  retrieval_failure: "var(--critical-bright)",
-  prompt_brittleness: "var(--amber-base)",
-  entity_gap: "var(--amber-300)",
-  healthy: "var(--ok-base)",
-};
 const FAILURE_LABELS = {
   hallucination: "Hallucination",
   retrieval_failure: "Retrieval failure",
   prompt_brittleness: "Prompt brittleness",
-  entity_gap: "Entity gap",
 };
 
-function HeroDemo() {
-  const { Badge, Button } = window.DesignSystem_90c6f1;
-  const [active, setActive] = useState(0);
-  const [running, setRunning] = useState(false);
-  const [result, setResult] = useState(null);
-  const [error, setError] = useState(null);
+function DiagnosisDemo() {
+  const { SignalIndicator, DiagnosticCard, Badge } = window.DesignSystem_90c6f1;
+  const [caseIdx, setCaseIdx] = useState(0);
+  const [fired, setFired] = useState(0);
+  const [diagnosed, setDiagnosed] = useState(false);
+  const [cycle, setCycle] = useState(0);
+  const timers = useRef([]);
 
-  async function run(idx) {
-    const c = DEMO_CASES[idx];
-    setRunning(true); setResult(null); setError(null);
-    try {
-      const r = await fetch("/api/playground", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: c.prompt, output: c.output,
-          chunks: c.chunks, similarity_scores: c.scores, temperature: c.temp,
-          run_fix: false,
-        }),
-      });
-      if (r.status === 401) {
-        // Not logged in — show the pre-computed expected result
-        setResult({ ui: { id: c.expected.failure, title: FAILURE_LABELS[c.expected.failure],
-          severity: "critical", confidence: c.expected.confidence,
-          explanation: c.expected.fix }, diagnosis: { healthy: false } });
-        return;
-      }
-      const data = await r.json();
-      setResult(data);
-    } catch (_) {
-      setResult({ ui: { id: DEMO_CASES[active].expected.failure,
-        title: FAILURE_LABELS[DEMO_CASES[active].expected.failure],
-        severity: "critical", confidence: DEMO_CASES[active].expected.confidence,
-        explanation: DEMO_CASES[active].expected.fix }, diagnosis: { healthy: false } });
-    } finally { setRunning(false); }
-  }
+  useEffect(() => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    setFired(0);
+    setDiagnosed(false);
+    const c = DEMO_CASES[caseIdx];
+    const at = (ms, fn) => timers.current.push(setTimeout(fn, ms));
+    c.signals.forEach((_, i) => at(400 + i * 550, () => setFired(i + 1)));
+    const diagAt = 400 + c.signals.length * 550 + 500;
+    at(diagAt, () => setDiagnosed(true));
+    // Auto-advance to next case after showing the result for 5s
+    at(diagAt + 5000, () => {
+      setCaseIdx(idx => (idx + 1) % DEMO_CASES.length);
+      setCycle(n => n + 1);
+    });
+    return () => timers.current.forEach(clearTimeout);
+  }, [caseIdx, cycle]);
 
-  useEffect(() => { run(active); }, [active]);
-
-  const c = DEMO_CASES[active];
-  const ui = result && result.ui;
+  const c = DEMO_CASES[caseIdx];
 
   return (
-    <div className="hero-demo">
-      <div className="hero-demo__bar">
-        {I.mark({ style: { width: 14, height: 14 } })}
-        <span className="hero-demo__title">Live diagnosis</span>
-        <div className="hero-demo__tabs">
+    <div className="demo">
+      <div className="demo__bar">
+        {I.mark({ style: { width: 16, height: 16 } })}
+        <span className="ds-sm" style={{ color: "var(--text-secondary)" }}>debugai · diagnosis</span>
+        <span className="demo__live">LIVE</span>
+        {/* Case tabs */}
+        <div style={{ marginLeft: "auto", display: "flex", gap: "4px" }}>
           {DEMO_CASES.map((d, i) => (
-            <button key={i} className={"hero-demo__tab" + (active === i ? " active" : "")}
-              onClick={() => setActive(i)}>{d.label}</button>
+            <button key={i} onClick={() => { setCaseIdx(i); setCycle(n => n + 1); }}
+              style={{
+                fontFamily: "var(--font-mono)", fontSize: "10px", padding: "2px 8px",
+                borderRadius: "3px", border: "1px solid",
+                background: caseIdx === i ? "var(--amber-muted)" : "none",
+                borderColor: caseIdx === i ? "var(--amber-700)" : "var(--border-subtle)",
+                color: caseIdx === i ? "var(--amber-base)" : "var(--text-tertiary)",
+                cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.08em",
+              }}>{d.label}</button>
           ))}
         </div>
       </div>
-      <div className="hero-demo__body">
-        <div className="hero-demo__input">
-          <div className="hero-demo__label">PROMPT</div>
-          <div className="hero-demo__text">{c.prompt}</div>
-          <div className="hero-demo__label" style={{ marginTop: "var(--space-3)" }}>LLM OUTPUT</div>
-          <div className="hero-demo__text hero-demo__text--output">{c.output}</div>
+      <div className="demo__req">
+        <span className="method">RAG</span>
+        <span className="path">{c.request}</span>
+        <span className="trace" style={{ marginLeft: "auto" }}>
+          {diagnosed
+            ? <Badge variant={c.confidence >= 0.9 ? "critical" : "warn"} dot>{FAILURE_LABELS[c.failure]}</Badge>
+            : <Badge variant="warn" dot>analyzing…</Badge>}
+        </span>
+      </div>
+
+      {/* Both states overlaid so height never reflows the page */}
+      <div className="demo__body demo__stack">
+        <div className={"demo__state" + (diagnosed ? " is-faded" : "")}>
+          <div className="demo__phase-label">
+            <Badge variant="warn" dot>scanning signals</Badge>
+            <span className="ds-overline" style={{ color: "var(--text-tertiary)" }}>
+              {fired}/{c.signals.length}
+            </span>
+          </div>
+          <div className="demo__signals">
+            {c.signals.map((s, i) => (
+              <SignalIndicator key={c.label + i} {...s} state={i < fired ? "fired" : "pending"} />
+            ))}
+          </div>
         </div>
-        <div className="hero-demo__arrow">→</div>
-        <div className="hero-demo__result">
-          {running ? (
-            <div className="hero-demo__loading">
-              <div className="loading-dots"><span/><span/><span/></div>
-              <span style={{ color: "var(--text-tertiary)", fontSize: "var(--text-xs)" }}>Analyzing…</span>
-            </div>
-          ) : ui ? (
-            <div>
-              <div className="hero-demo__verdict" style={{ background: FAILURE_COLORS[ui.id] || "var(--critical-base)" }}>
-                {FAILURE_LABELS[ui.id] || ui.id} · {ui.confidence != null ? Math.round(ui.confidence * 100) + "%" : ""}
-              </div>
-              <div className="hero-demo__fix">{ui.explanation}</div>
-            </div>
-          ) : (
-            <div className="hero-demo__empty">Select a case →</div>
-          )}
+
+        <div className={"demo__state demo__diag" + (diagnosed ? "" : " is-faded")}>
+          <DiagnosticCard
+            severity="critical"
+            id={c.failure + " · conf " + Math.round(c.confidence * 100) + "%"}
+            title={FAILURE_LABELS[c.failure]}
+            location={c.fix}
+            confidence={c.confidence}
+            signals={c.signals}
+            fix={c.fix}
+          />
         </div>
       </div>
     </div>
@@ -221,7 +232,7 @@ function Hero() {
           </div>
         </div>
         <div className="hero__right">
-          <HeroDemo />
+          <DiagnosisDemo />
         </div>
       </div>
     </header>

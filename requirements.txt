@@ -1,5 +1,5 @@
 # Core ML / signal computation
-torch>=2.2
+torch>=2.12,<2.13
 sentence-transformers>=2.7
 spacy>=3.7
 transformers>=4.40

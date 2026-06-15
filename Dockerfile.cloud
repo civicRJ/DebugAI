@@ -32,7 +32,7 @@ WORKDIR /app
 # CPU-only torch, then remaining deps.
 # No model baking — DEBUGAI_NLI_API=1 calls HF Inference API at runtime (zero RAM).
 # Only embeddings (MiniLM ~80MB) and spaCy NER (~12MB) load locally.
-RUN pip install --index-url https://download.pytorch.org/whl/cpu torch
+RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.12,<2.13"
 COPY requirements.txt .
 RUN pip install -r requirements.txt && python -m spacy download en_core_web_sm && \
     python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2'); print('embedder cached')"

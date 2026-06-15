@@ -115,3 +115,65 @@ def send_welcome(to_email: str, name: str) -> None:
         log.info("welcome email sent to %s", to_email)
     except Exception as e:
         log.warning("welcome email failed (%s)", e)
+
+
+def send_email_verification(to_email: str, name: str, token: str) -> None:
+    """Send an email verification link. Fails silently if unconfigured."""
+    client = _client()
+    if not client:
+        return
+    first = name.split()[0] if name else "there"
+    url = f"{APP_URL}/verify-email?token={token}"
+    html = f"""
+<!DOCTYPE html>
+<html>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0c0a;color:#f4f0e6;padding:40px 24px;max-width:520px;margin:0 auto">
+  <p style="font-size:20px;font-weight:700;margin:0 0 8px"><span style="color:#EF9F27">Debug</span>AI</p>
+  <h1 style="font-size:22px;font-weight:700;margin:0 0 16px">Verify your email</h1>
+  <p style="color:#aba593;line-height:1.65;margin:0 0 24px">
+    Hi {first}, confirm this email address to finish setting up your DebugAI account.
+  </p>
+  <a href="{url}" style="display:inline-block;background:#EF9F27;color:#1a1304;font-weight:700;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:15px">Verify email</a>
+  <p style="color:#757061;font-size:12px;margin:24px 0 0">This link expires in 24 hours.</p>
+</body>
+</html>"""
+    try:
+        client.Emails.send({
+            "from": FROM_ADDRESS,
+            "to": [to_email],
+            "subject": "Verify your DebugAI email",
+            "html": html,
+        })
+    except Exception as e:
+        log.warning("verification email failed (%s)", e)
+
+
+def send_password_reset(to_email: str, name: str, token: str) -> None:
+    """Send a password reset link. Fails silently if unconfigured."""
+    client = _client()
+    if not client:
+        return
+    first = name.split()[0] if name else "there"
+    url = f"{APP_URL}/reset-password?token={token}"
+    html = f"""
+<!DOCTYPE html>
+<html>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0c0a;color:#f4f0e6;padding:40px 24px;max-width:520px;margin:0 auto">
+  <p style="font-size:20px;font-weight:700;margin:0 0 8px"><span style="color:#EF9F27">Debug</span>AI</p>
+  <h1 style="font-size:22px;font-weight:700;margin:0 0 16px">Reset your password</h1>
+  <p style="color:#aba593;line-height:1.65;margin:0 0 24px">
+    Hi {first}, use this link to choose a new DebugAI password.
+  </p>
+  <a href="{url}" style="display:inline-block;background:#EF9F27;color:#1a1304;font-weight:700;padding:12px 28px;border-radius:6px;text-decoration:none;font-size:15px">Reset password</a>
+  <p style="color:#757061;font-size:12px;margin:24px 0 0">This link expires in 1 hour. If you did not request it, ignore this email.</p>
+</body>
+</html>"""
+    try:
+        client.Emails.send({
+            "from": FROM_ADDRESS,
+            "to": [to_email],
+            "subject": "Reset your DebugAI password",
+            "html": html,
+        })
+    except Exception as e:
+        log.warning("password reset email failed (%s)", e)

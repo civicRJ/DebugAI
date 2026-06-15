@@ -78,3 +78,67 @@ def test_delete_user_revokes_tokens(store):
     tok = store.create_api_token(u["id"], "t")["token"]
     store.delete_user(u["id"])
     assert store.user_for_api_token(tok) is None
+
+
+def test_prod_key_storage_requires_encryption_secret(store, monkeypatch):
+    u = store.register("a@b.com", "A", "password1")
+    monkeypatch.setenv("DEBUGAI_REQUIRE_KEY_SECRET", "1")
+    monkeypatch.delenv("DEBUGAI_KEY_SECRET", raising=False)
+    with pytest.raises(AuthError):
+        store.set_user_key(u["id"], "openai", "sk-test")
+
+    monkeypatch.setenv("DEBUGAI_KEY_SECRET", "x" * 32)
+    store.set_user_key(u["id"], "openai", "sk-test")
+    assert store.get_user_key(u["id"], "openai") == "sk-test"
+
+
+def test_email_verification_and_password_reset_tokens(store):
+    u = store.register("a@b.com", "A", "password1")
+    assert u["email_verified"] is False
+    verify = store.create_email_token(u["id"], "verify_email")
+    verified = store.verify_email_token(verify)
+    assert verified["email_verified"] is True
+    with pytest.raises(AuthError):
+        store.verify_email_token(verify)
+
+    reset, user = store.create_password_reset_token("a@b.com")
+    assert user["id"] == u["id"]
+    session = store.create_session(u["id"])
+    updated = store.reset_password(reset, "newpassword9")
+    assert updated["email_verified"] is True
+    assert store.authenticate("a@b.com", "newpassword9") is not None
+    assert store.user_for_token(session) is None
+    assert store.create_password_reset_token("missing@example.com") is None
+
+
+def test_sessions_and_email_change_verification_reset(store):
+    u = store.register("a@b.com", "A", "password1")
+    verify = store.create_email_token(u["id"], "verify_email")
+    store.verify_email_token(verify)
+    s1 = store.create_session(u["id"])
+    s2 = store.create_session(u["id"])
+    sessions = store.list_sessions(u["id"], s1)
+    assert len(sessions) == 2
+    assert any(s["current"] for s in sessions)
+    store.delete_other_sessions(u["id"], s1)
+    assert store.user_for_token(s1) is not None
+    assert store.user_for_token(s2) is None
+
+    updated = store.update_user(u["id"], email="new@b.com")
+    assert updated["email_verified"] is False
+
+
+def test_mfa_totp_lifecycle(store):
+    u = store.register("mfa@example.com", "MFA", "password1")
+    secret = store.setup_mfa(u["id"])
+    code = store._totp(secret, int(__import__("time").time() // 30))
+    store.enable_mfa(u["id"], code)
+    assert store.mfa_status(u["id"])["enabled"] is True
+
+    challenge = store.create_email_token(u["id"], "mfa_login", ttl=600)
+    assert store.verify_mfa_login(challenge, code)["id"] == u["id"]
+    with pytest.raises(AuthError):
+        store.verify_mfa_login(challenge, code)
+
+    store.disable_mfa(u["id"], code)
+    assert store.mfa_status(u["id"])["enabled"] is False

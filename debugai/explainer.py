@@ -52,7 +52,7 @@ def _deterministic(diag: Diagnosis) -> dict:
 
 def _client(api_key: str | None = None):
     """Return an Anthropic client, or None if unavailable (fail open)."""
-    key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+    key = os.environ.get("ANTHROPIC_API_KEY") if api_key is None else api_key
     if not key:
         return None
     try:

@@ -89,6 +89,8 @@
     const [showPw, setShowPw] = useState(false);
     const [errors, setErrors] = useState({});
     const [formErr, setFormErr] = useState(null);
+    const [mfaChallenge, setMfaChallenge] = useState(null);
+    const [mfaCode, setMfaCode] = useState("");
     const [busy, setBusy] = useState(false);
 
     function validate(field, value) {
@@ -100,10 +102,24 @@
 
     async function submit(ev) {
       ev.preventDefault();
+      if (mfaChallenge) {
+        if (!mfaCode.trim()) { setFormErr("Enter the 6-digit code from your authenticator app."); return; }
+        setBusy(true); setFormErr(null);
+        const r = await apiFetch("/api/auth/mfa/login", "POST", { challenge: mfaChallenge, code: mfaCode });
+        if (r.ok) { window.location.href = "/dashboard"; return; }
+        setFormErr(r.data.detail || "Invalid MFA code.");
+        setBusy(false);
+        return;
+      }
       const e = validate();
       if (Object.keys(e).length) { setErrors(e); return; }
       setBusy(true); setFormErr(null);
       const r = await apiFetch("/api/auth/login", "POST", { email: email.trim(), password });
+      if (r.data.mfa_required) {
+        setMfaChallenge(r.data.challenge);
+        setBusy(false);
+        return;
+      }
       if (r.ok) { window.location.href = "/dashboard"; return; }
       setFormErr(r.data.detail || "Wrong email or password. Try again.");
       setBusy(false);
@@ -112,9 +128,15 @@
     return (
       <div className="auth-card">
         <Brand />
-        <h1 className="auth-title">Sign in</h1>
-        <p className="auth-sub">Welcome back to DebugAI.</p>
+        <h1 className="auth-title">{mfaChallenge ? "Two-factor code" : "Sign in"}</h1>
+        <p className="auth-sub">{mfaChallenge ? "Enter the code from your authenticator app." : "Welcome back to DebugAI."}</p>
         <form className="auth-form" onSubmit={submit} noValidate>
+          {mfaChallenge ? (
+            <FieldGroup label="Authenticator code" id="login-mfa" value={mfaCode}
+              onChange={e => setMfaCode(e.target.value)} autoFocus autoComplete="one-time-code"
+              placeholder="123456" />
+          ) : (
+          <>
           <FieldGroup label="Email" id="login-email" type="email" value={email}
             onChange={e => { setEmail(e.target.value); setErrors(prev => ({ ...prev, email: null })); }}
             onBlur={() => { const e = validate("email"); setErrors(prev => ({ ...prev, ...e })); }}
@@ -124,25 +146,31 @@
             onBlur={() => { const e = validate("password"); setErrors(prev => ({ ...prev, ...e })); }}
             error={errors.password} autoComplete="current-password" placeholder="••••••••"
             showToggle showPassword={showPw} onToggle={() => setShowPw(v => !v)} />
+          </>
+          )}
           {formErr && <p className="auth-form-error" role="alert">{formErr}</p>}
           <button type="submit" className={"auth-submit" + (busy ? " auth-submit--busy" : "")}
             disabled={busy}>
             {busy
               ? <><span className="auth-spinner" aria-hidden="true" />Signing in…</>
-              : "Sign in"}
+              : (mfaChallenge ? "Verify code" : "Sign in")}
           </button>
         </form>
-        <p className="auth-foot">New here? <a href="/register">Create an account</a></p>
+        <p className="auth-foot">
+          New here? <a href="/register">Create an account</a>
+          <br /><a href="/reset-password">Forgot password?</a>
+        </p>
       </div>
     );
   }
 
   // ── Register ──────────────────────────────────────────────────────────────
   function Register() {
-    const [f, setF] = useState({ name: "", email: "", password: "" });
+    const [f, setF] = useState({ name: "", email: "", password: "", website: "" });
     const [showPw, setShowPw] = useState(false);
     const [errors, setErrors] = useState({});
     const [formErr, setFormErr] = useState(null);
+    const [sent, setSent] = useState(false);
     const [busy, setBusy] = useState(false);
     const set = k => e => { setF(p => ({ ...p, [k]: e.target.value })); setErrors(p => ({ ...p, [k]: null })); };
 
@@ -160,8 +188,13 @@
       if (Object.keys(e).length) { setErrors(e); return; }
       setBusy(true); setFormErr(null);
       const r = await apiFetch("/api/auth/register", "POST",
-        { email: f.email.trim(), name: f.name.trim(), password: f.password });
+        { email: f.email.trim(), name: f.name.trim(), password: f.password, website: f.website });
       if (r.ok) {
+        if (r.data.needs_verification || r.data.message) {
+          setSent(true);
+          setBusy(false);
+          return;
+        }
         try { window.debugaiTrack && window.debugaiTrack("signup", { method: "email" }); } catch(_) {}
         try { window.debugaiIdentify && window.debugaiIdentify(r.data.id, { email: r.data.email, name: r.data.name }); } catch(_) {}
         window.location.href = "/dashboard"; return;
@@ -175,8 +208,18 @@
       <div className="auth-card">
         <Brand />
         <h1 className="auth-title">Create your account</h1>
-        <p className="auth-sub">Diagnose and fix LLM failures — free.</p>
+        <p className="auth-sub">
+          {sent ? "Check your email to finish creating the account." : "Diagnose and fix LLM failures — free."}
+        </p>
+        {sent && (
+          <p className="auth-success" role="status">
+            We sent a verification link to {f.email.trim() || "your email address"}.
+          </p>
+        )}
+        {!sent && (
         <form className="auth-form" onSubmit={submit} noValidate>
+          <input type="text" value={f.website} onChange={set("website")}
+            tabIndex="-1" autoComplete="off" aria-hidden="true" style={{ display: "none" }} />
           <FieldGroup label="Name" id="reg-name" value={f.name} onChange={set("name")}
             onBlur={() => setErrors(p => ({ ...p, ...validate("name") }))}
             error={errors.name} autoFocus autoComplete="name" placeholder="Ada Lovelace" />
@@ -201,7 +244,97 @@
             {busy ? <><span className="auth-spinner" aria-hidden="true" />Creating…</> : "Create account"}
           </button>
         </form>
+        )}
         <p className="auth-foot">Already have an account? <a href="/login">Sign in</a></p>
+      </div>
+    );
+  }
+
+  function VerifyEmail() {
+    const [state, setState] = useState({ status: "working", detail: "Verifying your email..." });
+    useEffect(() => {
+      const token = new URLSearchParams(window.location.search).get("token") || "";
+      if (!token) {
+        setState({ status: "error", detail: "Verification link is missing." });
+        return;
+      }
+      apiFetch("/api/auth/verify", "POST", { token }).then(r => {
+        if (r.ok) {
+          setState({ status: "ok", detail: "Email verified. Redirecting..." });
+          setTimeout(() => { window.location.href = "/dashboard"; }, 900);
+        } else {
+          setState({ status: "error", detail: r.data.detail || "Verification link is invalid or expired." });
+        }
+      });
+    }, []);
+    return (
+      <div className="auth-card">
+        <Brand />
+        <h1 className="auth-title">Verify email</h1>
+        <p className={state.status === "error" ? "auth-form-error" : "auth-success"} role="status">
+          {state.detail}
+        </p>
+        {state.status === "error" && <p className="auth-foot"><a href="/login">Back to sign in</a></p>}
+      </div>
+    );
+  }
+
+  function ResetPassword() {
+    const token = new URLSearchParams(window.location.search).get("token") || "";
+    const [email, setEmail] = useState("");
+    const [password, setPassword] = useState("");
+    const [showPw, setShowPw] = useState(false);
+    const [msg, setMsg] = useState(null);
+    const [err, setErr] = useState(null);
+    const [busy, setBusy] = useState(false);
+
+    async function request(ev) {
+      ev.preventDefault();
+      const e = validateEmail(email);
+      if (e) { setErr(e); return; }
+      setBusy(true); setErr(null);
+      await apiFetch("/api/auth/password-reset/request", "POST", { email: email.trim() });
+      setBusy(false);
+      setMsg("If that email has an account, a reset link has been sent.");
+    }
+
+    async function confirm(ev) {
+      ev.preventDefault();
+      const e = validatePassword(password);
+      if (e) { setErr(e); return; }
+      setBusy(true); setErr(null);
+      const r = await apiFetch("/api/auth/password-reset/confirm", "POST", { token, password });
+      setBusy(false);
+      if (r.ok) { window.location.href = "/dashboard"; return; }
+      setErr(r.data.detail || "Reset link is invalid or expired.");
+    }
+
+    return (
+      <div className="auth-card">
+        <Brand />
+        <h1 className="auth-title">{token ? "Choose new password" : "Reset password"}</h1>
+        <p className="auth-sub">
+          {token ? "Enter a new password for your account." : "We'll email you a reset link if the account exists."}
+        </p>
+        <form className="auth-form" onSubmit={token ? confirm : request} noValidate>
+          {token ? (
+            <FieldGroup label="New password" id="reset-pw" type="password" value={password}
+              onChange={e => setPassword(e.target.value)}
+              error={err} autoComplete="new-password" placeholder="at least 8 characters"
+              showToggle showPassword={showPw} onToggle={() => setShowPw(v => !v)} />
+          ) : (
+            <FieldGroup label="Email" id="reset-email" type="email" value={email}
+              onChange={e => setEmail(e.target.value)}
+              error={err} autoFocus autoComplete="email" placeholder="you@company.com" />
+          )}
+          {msg && <p className="auth-success" role="status">{msg}</p>}
+          {err && token && <p className="auth-form-error" role="alert">{err}</p>}
+          <button type="submit" className={"auth-submit" + (busy ? " auth-submit--busy" : "")}
+            disabled={busy}>
+            {busy ? <><span className="auth-spinner" aria-hidden="true" />Sending…</> : (token ? "Reset password" : "Send reset link")}
+          </button>
+        </form>
+        <p className="auth-foot"><a href="/login">Back to sign in</a></p>
       </div>
     );
   }
@@ -376,6 +509,125 @@
     );
   }
 
+  function Sessions() {
+    const [items, setItems] = useState([]);
+    const [msg, setMsg] = useState(null);
+    const load = () => apiFetch("/api/auth/sessions").then(r => r.ok && setItems(r.data.items || []));
+    useEffect(() => { load(); }, []);
+
+    async function logoutOthers() {
+      await apiFetch("/api/auth/logout-others", "POST");
+      setMsg("Other sessions signed out.");
+      load();
+      setTimeout(() => setMsg(null), 2000);
+    }
+
+    async function revoke(id) {
+      await apiFetch(`/api/auth/sessions/${id}`, "DELETE");
+      load();
+    }
+
+    function when(ts) {
+      if (!ts) return "unknown";
+      return new Date(ts * 1000).toLocaleString();
+    }
+
+    return (
+      <div className="auth-section">
+        <h3>Sessions</h3>
+        <p className="auth-section-desc">Review active browser sessions and sign out devices you no longer use.</p>
+        {msg && <p className="auth-success" role="status">{msg}</p>}
+        <button type="button" className="auth-submit auth-submit--sm" onClick={logoutOthers}>
+          Log out other sessions
+        </button>
+        <ul className="auth-token-list">
+          {items.map(s => (
+            <li key={s.id} className="auth-token-row">
+              <span className="auth-token-name">{s.current ? "Current session" : "Browser session"}</span>
+              <span className="auth-meta">Last used {when(s.last_used)}</span>
+              {!s.current && <button className="auth-revoke" onClick={() => revoke(s.id)}>Revoke</button>}
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
+  function MFA() {
+    const [status, setStatus] = useState({ enabled: false });
+    const [setup, setSetup] = useState(null);
+    const [code, setCode] = useState("");
+    const [msg, setMsg] = useState(null);
+    const [err, setErr] = useState(null);
+    const load = () => apiFetch("/api/account/mfa").then(r => r.ok && setStatus(r.data));
+    useEffect(() => { load(); }, []);
+
+    async function startSetup() {
+      setErr(null); setMsg(null);
+      const r = await apiFetch("/api/account/mfa/setup", "POST");
+      if (r.ok) { setSetup(r.data); setCode(""); return; }
+      setErr(r.data.detail || "Could not start MFA setup.");
+    }
+
+    async function enable() {
+      setErr(null);
+      const r = await apiFetch("/api/account/mfa/enable", "POST", { code });
+      if (r.ok) {
+        setStatus(r.data); setSetup(null); setCode(""); setMsg("MFA enabled.");
+        return;
+      }
+      setErr(r.data.detail || "Invalid code.");
+    }
+
+    async function disable() {
+      setErr(null);
+      const r = await apiFetch("/api/account/mfa/disable", "POST", { code });
+      if (r.ok) {
+        setStatus(r.data); setSetup(null); setCode(""); setMsg("MFA disabled.");
+        return;
+      }
+      setErr(r.data.detail || "Invalid code.");
+    }
+
+    return (
+      <div className="auth-section">
+        <h3>Multi-factor authentication</h3>
+        <p className="auth-section-desc">
+          Add a one-time code from an authenticator app to protect sign-in.
+        </p>
+        {msg && <p className="auth-success" role="status">{msg}</p>}
+        {err && <p className="auth-form-error" role="alert">{err}</p>}
+        {setup && (
+          <div className="auth-token-modal" role="dialog" aria-modal="true" aria-label="MFA setup">
+            <div className="auth-token-modal__inner">
+              <p className="auth-token-modal__title">Add this key to your authenticator app.</p>
+              <div className="auth-token-modal__value"><code>{setup.secret}</code></div>
+              <p className="auth-meta">Then enter the 6-digit code it generates.</p>
+            </div>
+          </div>
+        )}
+        <div className="auth-token-form">
+          <input className="auth-token-input" value={code} onChange={e => setCode(e.target.value)}
+            placeholder={status.enabled ? "Current 6-digit code" : "6-digit code"} maxLength={20}
+            autoComplete="one-time-code" />
+          {status.enabled ? (
+            <button type="button" className="auth-revoke" onClick={disable} disabled={!code.trim()}>
+              Disable
+            </button>
+          ) : setup ? (
+            <button type="button" className="auth-submit auth-submit--sm" onClick={enable} disabled={!code.trim()}>
+              Enable MFA
+            </button>
+          ) : (
+            <button type="button" className="auth-submit auth-submit--sm" onClick={startSetup}>
+              Set up MFA
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // ── Account ────────────────────────────────────────────────────────────────
   function Account() {
     const [user, setUser] = useState(null);
@@ -480,6 +732,8 @@
         {/* 2 ── API Tokens */}
         <LLMKeys />
         <Tokens />
+        <MFA />
+        <Sessions />
 
         {/* 3 ── Danger zone */}
         <section className="auth-danger-zone" aria-labelledby="danger-heading">
@@ -547,7 +801,13 @@
   }
 
   // ── Router ────────────────────────────────────────────────────────────────
-  const VIEWS = { login: Login, register: Register, account: Account };
+  const VIEWS = {
+    login: Login,
+    register: Register,
+    account: Account,
+    "verify-email": VerifyEmail,
+    "reset-password": ResetPassword,
+  };
   const seg = window.location.pathname.replace(/\/+$/, "").split("/").pop();
   const View = VIEWS[seg] || Login;
   ReactDOM.createRoot(document.getElementById("root")).render(

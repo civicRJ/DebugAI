@@ -15,12 +15,15 @@ import hmac
 import os
 import threading
 import time
+from urllib.parse import urlsplit
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 _API_PREFIX = "/api"
+_SESSION_COOKIE = "debugai_session"
+_UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 MAX_BODY_BYTES = 4 * 1024 * 1024  # 4 MB — reject oversized request bodies (DoS guard)
 
 # Strict CSP: all scripts are self-hosted (vendored React + esbuild bundles, no
@@ -74,6 +77,55 @@ class BodyLimitMiddleware(BaseHTTPMiddleware):
         cl = request.headers.get("content-length")
         if cl and cl.isdigit() and int(cl) > MAX_BODY_BYTES:
             return JSONResponse({"detail": "request body too large"}, status_code=413)
+        return await call_next(request)
+
+
+def _csrf_strict() -> bool:
+    return bool(os.environ.get("DEBUGAI_STRICT_CSRF") or os.environ.get("DATABASE_URL"))
+
+
+def _origin_value(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+    except Exception:
+        return None
+    if not parsed.scheme or not parsed.netloc:
+        return None
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}"
+
+
+def _expected_origin(request: Request) -> str:
+    if os.environ.get("DEBUGAI_TRUST_PROXY"):
+        proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    else:
+        proto = request.url.scheme
+        host = request.headers.get("host", "")
+    return f"{proto.lower()}://{host.lower()}"
+
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """Origin-check cookie-authenticated unsafe API calls.
+
+    Browser sessions authenticate with an httpOnly cookie. In production, any
+    mutating /api request carrying that cookie must come from the same origin.
+    Token-authenticated SDK calls without cookies are unaffected.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if (
+            request.url.path.startswith(_API_PREFIX)
+            and request.method.upper() in _UNSAFE_METHODS
+            and request.cookies.get(_SESSION_COOKIE)
+            and _csrf_strict()
+        ):
+            supplied = _origin_value(request.headers.get("origin"))
+            if supplied is None:
+                supplied = _origin_value(request.headers.get("referer"))
+            if supplied != _expected_origin(request):
+                return JSONResponse({"detail": "csrf origin check failed"}, status_code=403)
         return await call_next(request)
 
 
@@ -182,5 +234,6 @@ def install(app) -> None:
     """
     app.add_middleware(AuthRateLimitMiddleware)   # auth endpoints: 10 req/min/IP
     app.add_middleware(BodyLimitMiddleware)
+    app.add_middleware(CSRFMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)

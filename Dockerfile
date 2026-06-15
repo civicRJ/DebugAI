@@ -23,7 +23,7 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # CPU-only torch first (avoids the multi-GB CUDA wheel), then the rest.
-RUN pip install --index-url https://download.pytorch.org/whl/cpu torch
+RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.12,<2.13"
 COPY requirements.txt .
 RUN pip install -r requirements.txt && python -m spacy download en_core_web_sm
 

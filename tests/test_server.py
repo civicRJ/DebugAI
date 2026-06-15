@@ -69,6 +69,17 @@ def test_stats_and_filter(client):
     )
 
 
+def test_seed_endpoint_includes_new_debugger_failures(client):
+    r = client.post("/api/seed")
+    assert r.status_code == 200
+    stats = client.get("/api/stats").json()
+    by_failure = stats["by_failure"]
+    assert by_failure["schema_violation"] >= 1
+    assert by_failure["tool_call_failure"] >= 1
+    assert by_failure["citation_failure"] >= 1
+    assert by_failure["ambiguous_prompt"] >= 1
+
+
 def test_thresholds_endpoint_and_calibration_records(client):
     # Fresh store → cold regime, defaults.
     t0 = client.get("/api/thresholds").json()
@@ -110,6 +121,58 @@ def test_fix_endpoint_runs_loop(client):
 
 def test_fix_endpoint_404_for_unknown(client):
     assert client.post("/api/fix/nope").status_code == 404
+
+
+def test_fix_does_not_use_server_env_keys(client, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-server-key-must-not-be-used")
+    r = client.post("/api/analyze", json={
+        "prompt": "What is the refund policy?",
+        "output": "Full cash refund within 90 days.",
+        "chunks": ["Store hours are 9 to 5."],
+        "similarity_scores": [0.2],
+        "temperature": 0.1,
+    })
+    diag_id = r.json()["id"]
+    fix = client.post(f"/api/fix/{diag_id}?simulate=false").json()
+    assert fix["rerun_mode"] == "proposed"
+    assert fix["after_output"] is None
+    assert fix["reverified"] is False
+
+
+def test_diagnosis_does_not_use_server_env_keys(client, monkeypatch):
+    import debugai.explainer as explainer_mod
+    import debugai.judge as judge_mod
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-server-key-must-not-be-used")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-server-key-must-not-be-used")
+
+    def no_env_explainer(api_key=None):
+        assert api_key == ""
+        return None
+
+    def no_env_judge(*_args, **_kwargs):
+        raise AssertionError("server OpenAI key should not be used")
+
+    monkeypatch.setattr(explainer_mod, "_client", no_env_explainer)
+    monkeypatch.setattr(judge_mod, "_openai_judge", no_env_judge)
+
+    analyzed = client.post("/api/analyze", json={
+        "prompt": "What is the refund policy?",
+        "output": "Full cash refund within 90 days.",
+        "chunks": ["Store hours are 9 to 5."],
+        "similarity_scores": [0.2],
+        "explain_with_llm": True,
+    })
+    assert analyzed.status_code == 200
+    assert analyzed.json()["diagnosis"]["explainer_model"] == "deterministic"
+
+    debugged = client.post("/api/debug", json={
+        "system_prompt": "You are a Socratic tutor. Ask one question.",
+        "prompt": "What is 2 + 2?",
+        "output": "The answer is 4.",
+        "run_fix": False,
+    })
+    assert debugged.status_code == 200
 
 
 def test_debug_endpoint_one_shot_diagnose_and_fix(client):
@@ -213,13 +276,23 @@ def test_errors_do_not_leak_internals(client):
 
 def test_health_endpoint_is_public(client):
     r = client.get("/api/health")
-    assert r.status_code == 200 and r.json()["status"] == "ok"
+    body = r.json()
+    assert r.status_code == 200 and body["status"] == "ok"
+    assert body["database"]["backend"] in ("sqlite", "postgres")
+    assert body["database"]["connected"] is True
 
 
 def test_gated_pages_are_no_store(client):
     # client fixture is authenticated → dashboard served with no-store so the
     # browser can't show a cached page after logout.
     assert client.get("/dashboard").headers.get("cache-control") == "no-store"
+
+
+def test_login_register_pages_do_not_auto_redirect_when_authenticated(client):
+    login = client.get("/login")
+    register = client.get("/register")
+    assert login.status_code == 200 and "Sign in" in login.text
+    assert register.status_code == 200 and "Create account" in register.text
 
 
 def test_security_headers_present(client):
@@ -244,6 +317,84 @@ def test_register_login_logout_me():
         assert c.get("/api/auth/me").json()["name"] == "Ada"
         c.post("/api/auth/logout")
         assert c.get("/api/auth/me").status_code == 401
+
+
+def test_email_verification_required_flow(monkeypatch):
+    auth_store.clear()
+    monkeypatch.setenv("DEBUGAI_REQUIRE_EMAIL_VERIFICATION", "1")
+    with TestClient(app) as c:
+        r = c.post("/api/auth/register",
+                   json={"email": "verify@example.com", "name": "Verify", "password": "password123"})
+        assert r.status_code == 200
+        assert r.json()["needs_verification"] is True
+        assert c.get("/api/auth/me").status_code == 401
+        blocked = c.post("/api/auth/login",
+                         json={"email": "verify@example.com", "password": "password123"})
+        assert blocked.status_code == 403
+
+        user = auth_store.get_user_by_email("verify@example.com")
+        token = auth_store.create_email_token(user["id"], "verify_email")
+        verified = c.post("/api/auth/verify", json={"token": token})
+        assert verified.status_code == 200
+        assert verified.json()["email_verified"] is True
+        assert c.get("/api/auth/me").status_code == 200
+    monkeypatch.delenv("DEBUGAI_REQUIRE_EMAIL_VERIFICATION", raising=False)
+    auth_store.clear()
+
+
+def test_password_reset_and_session_management():
+    auth_store.clear()
+    with TestClient(app) as c:
+        c.post("/api/auth/register",
+               json={"email": "reset@example.com", "name": "Reset", "password": "password123"})
+        user = c.get("/api/auth/me").json()
+        r = c.post("/api/auth/password-reset/request", json={"email": "missing@example.com"})
+        assert r.status_code == 200
+        assert "eligible" in r.json()["message"]
+        token, _ = auth_store.create_password_reset_token("reset@example.com")
+        ok = c.post("/api/auth/password-reset/confirm",
+                    json={"token": token, "password": "newpassword9"})
+        assert ok.status_code == 200
+        assert auth_store.authenticate("reset@example.com", "newpassword9") is not None
+
+        extra = auth_store.create_session(user["id"])
+        sessions = c.get("/api/auth/sessions").json()["items"]
+        assert len(sessions) >= 2
+        c.post("/api/auth/logout-others")
+        assert auth_store.user_for_token(extra) is None
+        assert c.get("/api/auth/me").status_code == 200
+    auth_store.clear()
+
+
+def test_mfa_login_flow():
+    auth_store.clear()
+    with TestClient(app) as c:
+        c.post("/api/auth/register",
+               json={"email": "mfa@example.com", "name": "MFA", "password": "password123"})
+        setup = c.post("/api/account/mfa/setup").json()
+        code = auth_store._totp(setup["secret"], int(__import__("time").time() // 30))
+        enabled = c.post("/api/account/mfa/enable", json={"code": code})
+        assert enabled.status_code == 200 and enabled.json()["enabled"] is True
+        c.post("/api/auth/logout")
+
+        login = c.post("/api/auth/login",
+                       json={"email": "mfa@example.com", "password": "password123"})
+        assert login.status_code == 202
+        assert login.json()["mfa_required"] is True
+        assert c.get("/api/auth/me").status_code == 401
+        challenge = login.json()["challenge"]
+        bad = c.post("/api/auth/mfa/login", json={"challenge": challenge, "code": "000000"})
+        assert bad.status_code == 401
+
+        login = c.post("/api/auth/login",
+                       json={"email": "mfa@example.com", "password": "password123"}).json()
+        ok = c.post("/api/auth/mfa/login",
+                    json={"challenge": login["challenge"], "code": code})
+        assert ok.status_code == 200
+        assert c.get("/api/auth/me").status_code == 200
+        disabled = c.post("/api/account/mfa/disable", json={"code": code})
+        assert disabled.status_code == 200 and disabled.json()["enabled"] is False
+    auth_store.clear()
 
 
 def test_register_validation_and_duplicate():
@@ -341,6 +492,24 @@ def test_data_endpoints_require_auth():
         assert r.status_code == 200 and "Sign in" in r.text
 
 
+def test_csrf_blocks_cross_origin_cookie_posts(monkeypatch):
+    auth_store.clear(); store.clear(); trace_store.clear()
+    monkeypatch.setenv("DEBUGAI_STRICT_CSRF", "1")
+    with TestClient(app, base_url="https://debugai.test") as c:
+        r = c.post("/api/auth/register",
+                   json={"email": "csrf@example.com", "name": "CSRF", "password": "password123"},
+                   headers={"Origin": "https://debugai.test"})
+        assert r.status_code == 200
+        blocked = c.post("/api/analyze", json={"prompt": "q", "output": "a"},
+                         headers={"Origin": "https://evil.test"})
+        assert blocked.status_code == 403
+        allowed = c.post("/api/analyze", json={"prompt": "q", "output": "a"},
+                         headers={"Origin": "https://debugai.test"})
+        assert allowed.status_code == 200
+    monkeypatch.delenv("DEBUGAI_STRICT_CSRF", raising=False)
+    auth_store.clear(); store.clear(); trace_store.clear()
+
+
 def test_oversized_body_rejected(client):
     big = "x" * (5 * 1024 * 1024)
     r = client.post("/api/analyze", content=big.encode(),
@@ -377,6 +546,22 @@ def test_trace_ingest_ignores_unknown_fields(client):
     }).json()
     assert t["id"] != "attacker-set"   # server assigns the id
     assert "evil" not in t              # extra fields dropped
+
+
+def test_org_workspace_trace_and_seed_scoping(client):
+    org = client.post("/api/orgs", json={"name": "Acme"}).json()
+    client.patch("/api/user/workspace", json={"org_id": org["id"]})
+
+    t = client.post("/api/traces", json={
+        "name": "org-trace", "spans": [{"kind": "generation"}],
+    }).json()
+    assert t["owner"] == org["id"]
+
+    client.post("/api/seed")
+    assert client.get("/api/stats").json()["total"] > 0
+    client.delete("/api/diagnoses")
+    assert client.get("/api/stats").json()["total"] == 0
+    assert client.get("/api/traces").json()["items"] == []
 
 
 def test_clear(client):

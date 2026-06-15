@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import re
 import secrets
 import threading
@@ -24,8 +25,10 @@ import time
 from pathlib import Path
 
 import base64
+import struct
 
 from cryptography.fernet import Fernet
+from sqlalchemy import inspect
 from sqlalchemy import text
 
 from server.db import get_engine
@@ -45,7 +48,17 @@ def _fernet() -> Fernet:
     return Fernet(key)
 
 
+def _requires_key_secret() -> bool:
+    return bool(os.environ.get("DATABASE_URL") or os.environ.get("DEBUGAI_REQUIRE_KEY_SECRET"))
+
+
+def _has_key_secret() -> bool:
+    return bool(os.environ.get("DEBUGAI_KEY_SECRET"))
+
+
 def _encrypt(value: str) -> str:
+    if _requires_key_secret() and not _has_key_secret():
+        raise AuthError("DEBUGAI_KEY_SECRET is required before storing user LLM keys.")
     return _fernet().encrypt(value.encode("utf-8")).decode("ascii")
 
 
@@ -54,6 +67,8 @@ def _decrypt(token: str) -> str:
 
 
 _SESSION_TTL = 30 * 24 * 3600  # 30 days
+_EMAIL_TOKEN_TTL = 24 * 3600
+_RESET_TOKEN_TTL = 60 * 60
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 _N, _R, _P, _DKLEN = 16384, 8, 1, 32
@@ -90,14 +105,17 @@ class AuthStore:
                     name TEXT NOT NULL,
                     pw_hash TEXT NOT NULL,
                     pw_salt TEXT NOT NULL,
-                    created_at REAL NOT NULL
+                    created_at REAL NOT NULL,
+                    email_verified INTEGER NOT NULL DEFAULT 0
                 )
             """))
             conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     token TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
-                    expires_at REAL NOT NULL
+                    expires_at REAL NOT NULL,
+                    created_at REAL NOT NULL DEFAULT 0,
+                    last_used REAL
                 )
             """))
             conn.execute(text("""
@@ -117,6 +135,24 @@ class AuthStore:
                     key_enc  TEXT NOT NULL,
                     updated_at REAL NOT NULL,
                     PRIMARY KEY (user_id, provider)
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS email_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id    TEXT NOT NULL,
+                    purpose    TEXT NOT NULL,
+                    expires_at REAL NOT NULL,
+                    created_at REAL NOT NULL,
+                    used_at    REAL
+                )
+            """))
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS user_mfa (
+                    user_id    TEXT PRIMARY KEY,
+                    secret_enc TEXT NOT NULL,
+                    enabled    INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL
                 )
             """))
             conn.execute(text("""
@@ -153,11 +189,26 @@ class AuthStore:
                     active_org_id TEXT
                 )
             """))
+        self._ensure_columns()
+
+    def _ensure_columns(self) -> None:
+        """Add columns for older local/prod databases without destructive migrations."""
+        insp = inspect(self._engine)
+        users = {c["name"] for c in insp.get_columns("users")}
+        sessions = {c["name"] for c in insp.get_columns("sessions")}
+        with self._lock, self._engine.begin() as conn:
+            if "email_verified" not in users:
+                conn.execute(text("ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0"))
+            if "created_at" not in sessions:
+                conn.execute(text("ALTER TABLE sessions ADD COLUMN created_at REAL NOT NULL DEFAULT 0"))
+            if "last_used" not in sessions:
+                conn.execute(text("ALTER TABLE sessions ADD COLUMN last_used REAL"))
 
     @staticmethod
     def _public(row) -> dict:
         return {"id": row.id, "email": row.email, "name": row.name,
-                "created_at": row.created_at}
+                "created_at": row.created_at,
+                "email_verified": bool(getattr(row, "email_verified", 0))}
 
     @staticmethod
     def _validate(email: str, name: str, password: str | None) -> None:
@@ -199,10 +250,12 @@ class AuthStore:
         with self._lock, self._engine.begin() as conn:
             try:
                 conn.execute(text(
-                    "INSERT INTO users VALUES (:id,:email,:name,:pw_hash,:pw_salt,:created_at)"
-                ), {"id": uid, "email": email, "name": name,
-                    "pw_hash": _hash_password(password, salt),
-                    "pw_salt": salt.hex(), "created_at": time.time()})
+	                "INSERT INTO users (id,email,name,pw_hash,pw_salt,created_at,email_verified) "
+                    "VALUES (:id,:email,:name,:pw_hash,:pw_salt,:created_at,:email_verified)"
+	                ), {"id": uid, "email": email, "name": name,
+	                    "pw_hash": _hash_password(password, salt),
+	                    "pw_salt": salt.hex(), "created_at": time.time(),
+                        "email_verified": 0})
             except Exception as e:
                 if "unique" in str(e).lower() or "UNIQUE" in str(e):
                     raise AuthError("An account with that email already exists.")
@@ -227,6 +280,13 @@ class AuthStore:
             row = conn.execute(text("SELECT * FROM users WHERE id=:id"), {"id": user_id}).fetchone()
         return self._public(row) if row else None
 
+    def get_user_by_email(self, email: str) -> dict | None:
+        email = (email or "").strip().lower()
+        with self._engine.connect() as conn:
+            row = conn.execute(text("SELECT * FROM users WHERE email=:email"),
+                               {"email": email}).fetchone()
+        return self._public(row) if row else None
+
     def update_user(self, user_id: str, *, name: str | None = None,
                     email: str | None = None, new_password: str | None = None) -> dict:
         with self._lock, self._engine.begin() as conn:
@@ -237,13 +297,16 @@ class AuthStore:
             new_email = (email if email is not None else row.email).strip().lower()
             self._validate(new_email, new_name, new_password)
             pw_hash, pw_salt = row.pw_hash, row.pw_salt
+            email_verified = row.email_verified if new_email == row.email else 0
             if new_password:
                 salt = secrets.token_bytes(16)
                 pw_hash, pw_salt = _hash_password(new_password, salt), salt.hex()
             try:
                 conn.execute(text(
-                    "UPDATE users SET name=:name,email=:email,pw_hash=:pw_hash,pw_salt=:pw_salt WHERE id=:id"
-                ), {"name": new_name, "email": new_email, "pw_hash": pw_hash, "pw_salt": pw_salt, "id": user_id})
+                    "UPDATE users SET name=:name,email=:email,pw_hash=:pw_hash,"
+                    "pw_salt=:pw_salt,email_verified=:email_verified WHERE id=:id"
+                ), {"name": new_name, "email": new_email, "pw_hash": pw_hash,
+                    "pw_salt": pw_salt, "email_verified": email_verified, "id": user_id})
             except Exception as e:
                 if "unique" in str(e).lower() or "UNIQUE" in str(e):
                     raise AuthError("That email is already in use.")
@@ -255,15 +318,22 @@ class AuthStore:
         with self._lock, self._engine.begin() as conn:
             conn.execute(text("DELETE FROM sessions WHERE user_id=:id"), {"id": user_id})
             conn.execute(text("DELETE FROM api_tokens WHERE user_id=:id"), {"id": user_id})
+            conn.execute(text("DELETE FROM email_tokens WHERE user_id=:id"), {"id": user_id})
+            conn.execute(text("DELETE FROM user_mfa WHERE user_id=:id"), {"id": user_id})
             conn.execute(text("DELETE FROM users WHERE id=:id"), {"id": user_id})
 
     # ── Sessions ─────────────────────────────────────────────────────────────
     def create_session(self, user_id: str) -> str:
         token = secrets.token_urlsafe(32)
+        now = time.time()
         with self._lock, self._engine.begin() as conn:
-            conn.execute(text("INSERT INTO sessions VALUES (:token,:user_id,:expires_at)"),
-                         {"token": token, "user_id": user_id,
-                          "expires_at": time.time() + _SESSION_TTL})
+            conn.execute(text(
+                "INSERT INTO sessions (token,user_id,expires_at,created_at,last_used) "
+                "VALUES (:token,:user_id,:expires_at,:created_at,:last_used)"
+            ),
+	                         {"token": token, "user_id": user_id,
+	                          "expires_at": now + _SESSION_TTL,
+                              "created_at": now, "last_used": now})
         return token
 
     def user_for_token(self, token: str | None) -> dict | None:
@@ -274,6 +344,10 @@ class AuthStore:
                 "SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id "
                 "WHERE s.token=:token AND s.expires_at > :now"
             ), {"token": token, "now": time.time()}).fetchone()
+        if row is not None:
+            with self._lock, self._engine.begin() as conn:
+                conn.execute(text("UPDATE sessions SET last_used=:now WHERE token=:token"),
+                             {"now": time.time(), "token": token})
         return self._public(row) if row else None
 
     def delete_session(self, token: str | None) -> None:
@@ -281,6 +355,181 @@ class AuthStore:
             return
         with self._lock, self._engine.begin() as conn:
             conn.execute(text("DELETE FROM sessions WHERE token=:token"), {"token": token})
+
+    def list_sessions(self, user_id: str, current_token: str | None = None) -> list[dict]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT token, created_at, last_used, expires_at FROM sessions "
+                "WHERE user_id=:uid AND expires_at>:now ORDER BY last_used DESC"
+            ), {"uid": user_id, "now": time.time()}).fetchall()
+        return [
+            {"id": self._token_hash(r.token)[:16], "created_at": r.created_at,
+             "last_used": r.last_used, "expires_at": r.expires_at,
+             "current": bool(current_token and hmac.compare_digest(r.token, current_token))}
+            for r in rows
+        ]
+
+    def revoke_session(self, user_id: str, session_id: str, current_token: str | None = None) -> None:
+        with self._lock, self._engine.begin() as conn:
+            rows = conn.execute(text("SELECT token FROM sessions WHERE user_id=:uid"),
+                                {"uid": user_id}).fetchall()
+            for r in rows:
+                if self._token_hash(r.token)[:16] == session_id:
+                    if current_token and hmac.compare_digest(r.token, current_token):
+                        return
+                    conn.execute(text("DELETE FROM sessions WHERE token=:token"), {"token": r.token})
+                    return
+
+    def delete_other_sessions(self, user_id: str, current_token: str | None) -> None:
+        with self._lock, self._engine.begin() as conn:
+            if current_token:
+                conn.execute(text("DELETE FROM sessions WHERE user_id=:uid AND token<>:token"),
+                             {"uid": user_id, "token": current_token})
+            else:
+                conn.execute(text("DELETE FROM sessions WHERE user_id=:uid"), {"uid": user_id})
+
+    # ── Email verification + password reset ───────────────────────────────────
+    def create_email_token(self, user_id: str, purpose: str, ttl: int | None = None) -> str:
+        if purpose not in ("verify_email", "password_reset", "mfa_login"):
+            raise AuthError("Unsupported token purpose.")
+        token = secrets.token_urlsafe(32)
+        now = time.time()
+        expires = now + (ttl or (_RESET_TOKEN_TTL if purpose == "password_reset" else _EMAIL_TOKEN_TTL))
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text(
+                "DELETE FROM email_tokens WHERE user_id=:uid AND purpose=:purpose"
+            ), {"uid": user_id, "purpose": purpose})
+            conn.execute(text(
+                "INSERT INTO email_tokens (token_hash,user_id,purpose,expires_at,created_at,used_at) "
+                "VALUES (:h,:uid,:purpose,:expires,:created,NULL)"
+            ), {"h": self._token_hash(token), "uid": user_id, "purpose": purpose,
+                "expires": expires, "created": now})
+        return token
+
+    def create_password_reset_token(self, email: str) -> tuple[str, dict] | None:
+        email = (email or "").strip().lower()
+        with self._engine.connect() as conn:
+            row = conn.execute(text("SELECT * FROM users WHERE email=:email"),
+                               {"email": email}).fetchone()
+        if row is None:
+            _hash_password("", b"0" * 16)
+            return None
+        user = self._public(row)
+        return self.create_email_token(user["id"], "password_reset"), user
+
+    def verify_email_token(self, token: str) -> dict:
+        user = self._consume_email_token(token, "verify_email")
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("UPDATE users SET email_verified=1 WHERE id=:uid"),
+                         {"uid": user["id"]})
+            row = conn.execute(text("SELECT * FROM users WHERE id=:uid"),
+                               {"uid": user["id"]}).fetchone()
+        return self._public(row)
+
+    # ── MFA (TOTP) ─────────────────────────────────────────────────────────────
+    @staticmethod
+    def generate_mfa_secret() -> str:
+        return base64.b32encode(secrets.token_bytes(20)).decode("ascii").rstrip("=")
+
+    @staticmethod
+    def _totp(secret: str, counter: int) -> str:
+        padded = secret.upper() + "=" * ((8 - len(secret) % 8) % 8)
+        key = base64.b32decode(padded)
+        msg = struct.pack(">Q", counter)
+        digest = hmac.new(key, msg, hashlib.sha1).digest()
+        offset = digest[-1] & 0x0F
+        code = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+        return f"{code % 1_000_000:06d}"
+
+    @classmethod
+    def verify_totp(cls, secret: str, code: str, now: float | None = None) -> bool:
+        code = "".join(c for c in (code or "") if c.isdigit())
+        if len(code) != 6:
+            return False
+        counter = int((now or time.time()) // 30)
+        return any(hmac.compare_digest(cls._totp(secret, counter + drift), code)
+                   for drift in (-1, 0, 1))
+
+    def mfa_status(self, user_id: str) -> dict:
+        with self._engine.connect() as conn:
+            row = conn.execute(text("SELECT enabled, updated_at FROM user_mfa WHERE user_id=:uid"),
+                               {"uid": user_id}).fetchone()
+        return {"enabled": bool(row and row.enabled), "updated_at": row.updated_at if row else None}
+
+    def mfa_enabled(self, user_id: str) -> bool:
+        return self.mfa_status(user_id)["enabled"]
+
+    def setup_mfa(self, user_id: str) -> str:
+        secret = self.generate_mfa_secret()
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("""
+                INSERT INTO user_mfa (user_id, secret_enc, enabled, updated_at)
+                VALUES (:uid, :secret, 0, :now)
+                ON CONFLICT (user_id) DO UPDATE
+                    SET secret_enc=excluded.secret_enc, enabled=0, updated_at=excluded.updated_at
+            """), {"uid": user_id, "secret": _encrypt(secret), "now": time.time()})
+        return secret
+
+    def _mfa_secret(self, user_id: str) -> str | None:
+        with self._engine.connect() as conn:
+            row = conn.execute(text("SELECT secret_enc FROM user_mfa WHERE user_id=:uid"),
+                               {"uid": user_id}).fetchone()
+        if not row:
+            return None
+        try:
+            return _decrypt(row.secret_enc)
+        except Exception:
+            return None
+
+    def enable_mfa(self, user_id: str, code: str) -> None:
+        secret = self._mfa_secret(user_id)
+        if not secret or not self.verify_totp(secret, code):
+            raise AuthError("Invalid MFA code.")
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("UPDATE user_mfa SET enabled=1, updated_at=:now WHERE user_id=:uid"),
+                         {"uid": user_id, "now": time.time()})
+
+    def disable_mfa(self, user_id: str, code: str) -> None:
+        secret = self._mfa_secret(user_id)
+        if not secret or not self.verify_totp(secret, code):
+            raise AuthError("Invalid MFA code.")
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text("DELETE FROM user_mfa WHERE user_id=:uid"), {"uid": user_id})
+
+    def verify_mfa_login(self, challenge: str, code: str) -> dict:
+        user = self._consume_email_token(challenge, "mfa_login")
+        secret = self._mfa_secret(user["id"])
+        if not secret or not self.verify_totp(secret, code):
+            raise AuthError("Invalid MFA code.")
+        return user
+
+    def reset_password(self, token: str, new_password: str) -> dict:
+        self._validate("reset@example.com", "Reset", new_password)
+        user = self._consume_email_token(token, "password_reset")
+        salt = secrets.token_bytes(16)
+        with self._lock, self._engine.begin() as conn:
+            conn.execute(text(
+                "UPDATE users SET pw_hash=:pw_hash,pw_salt=:pw_salt,email_verified=1 WHERE id=:uid"
+            ), {"pw_hash": _hash_password(new_password, salt), "pw_salt": salt.hex(),
+                "uid": user["id"]})
+            conn.execute(text("DELETE FROM sessions WHERE user_id=:uid"), {"uid": user["id"]})
+            row = conn.execute(text("SELECT * FROM users WHERE id=:uid"),
+                               {"uid": user["id"]}).fetchone()
+        return self._public(row)
+
+    def _consume_email_token(self, token: str, purpose: str) -> dict:
+        h = self._token_hash(token or "")
+        now = time.time()
+        with self._lock, self._engine.begin() as conn:
+            row = conn.execute(text(
+                "SELECT t.token_hash, u.* FROM email_tokens t JOIN users u ON u.id=t.user_id "
+                "WHERE t.token_hash=:h AND t.purpose=:purpose AND t.used_at IS NULL AND t.expires_at>:now"
+            ), {"h": h, "purpose": purpose, "now": now}).fetchone()
+            if row is None:
+                raise AuthError("Invalid or expired token.")
+            conn.execute(text("UPDATE email_tokens SET used_at=:now WHERE token_hash=:h"),
+                         {"now": now, "h": h})
+        return self._public(row)
 
     # ── API tokens ────────────────────────────────────────────────────────────
     @staticmethod
@@ -482,6 +731,8 @@ class AuthStore:
         with self._lock, self._engine.begin() as conn:
             conn.execute(text("DELETE FROM sessions"))
             conn.execute(text("DELETE FROM api_tokens"))
+            conn.execute(text("DELETE FROM email_tokens"))
+            conn.execute(text("DELETE FROM user_mfa"))
             conn.execute(text("DELETE FROM user_keys"))
             conn.execute(text("DELETE FROM org_memberships"))
             conn.execute(text("DELETE FROM org_invites"))

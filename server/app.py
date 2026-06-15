@@ -36,10 +36,12 @@ MAX_CHUNK_LEN = 10_000
 from debugai import analyze
 from debugai.agents import propose_fix
 from debugai.calibration import ThresholdStore
+from debugai.examples import example_cases
 from debugai.schema import CaptureRecord
 from debugai.tracing import Span, Trace, scores_from_diagnosis, status_from_diagnosis
 from server.auth import AuthError, AuthStore
-from server.email import send_welcome
+from server.db import status as db_status
+from server.email import send_email_verification, send_password_reset, send_welcome
 from server.paths import data_path
 from server.security import install as install_security
 from server.store import DiagnosisStore, TraceStore
@@ -58,7 +60,6 @@ auth_store = AuthStore()
 # Per-user adaptive calibration: one ThresholdStore per account (§7.2).
 _tstores: dict[str, ThresholdStore] = {}
 _tstores_lock = __import__("threading").Lock()
-_seeded: set[str] = set()
 
 
 def tstore_for(owner: str) -> ThresholdStore:
@@ -101,7 +102,28 @@ def require_user(request: Request) -> dict:
     user = current_user(request)
     if user is None:
         raise HTTPException(status_code=401, detail="authentication required")
+    if _email_verification_required() and not user.get("email_verified"):
+        raise HTTPException(status_code=403, detail="email verification required")
     return user
+
+
+def _email_verification_required() -> bool:
+    return bool(os.environ.get("DEBUGAI_REQUIRE_EMAIL_VERIFICATION") or os.environ.get("DATABASE_URL"))
+
+
+def _hide_account_existence() -> bool:
+    return bool(os.environ.get("DEBUGAI_HIDE_ACCOUNT_EXISTENCE") or os.environ.get("DATABASE_URL"))
+
+
+def _send_verification(user: dict) -> None:
+    token = auth_store.create_email_token(user["id"], "verify_email")
+    import threading
+    threading.Thread(target=send_email_verification,
+                     args=(user["email"], user["name"], token), daemon=True).start()
+
+
+def _generic_email_sent() -> dict:
+    return {"ok": True, "message": "If the address is eligible, an email has been sent."}
 
 
 def _set_session(resp: Response, request: Request, user_id: str) -> None:
@@ -122,15 +144,50 @@ def _set_session(resp: Response, request: Request, user_id: str) -> None:
     )
 
 
+def _clear_session_cookie(resp: Response, request: Request) -> None:
+    trust_proxy = os.environ.get("DEBUGAI_TRUST_PROXY")
+    forwarded_proto = request.headers.get("x-forwarded-proto", "")
+    is_secure = (
+        (bool(trust_proxy) and forwarded_proto == "https")
+        or request.url.scheme == "https"
+    )
+    resp.delete_cookie(
+        SESSION_COOKIE, path="/", httponly=True, samesite="lax", secure=is_secure
+    )
+
+
 class RegisterIn(BaseModel):
     email: str = Field(max_length=320)
     name: str = Field(max_length=120)
     password: str = Field(max_length=200)
+    website: str | None = Field(default=None, max_length=200)
 
 
 class LoginIn(BaseModel):
     email: str = Field(max_length=320)
     password: str = Field(max_length=200)
+
+
+class EmailIn(BaseModel):
+    email: str = Field(max_length=320)
+
+
+class TokenIn(BaseModel):
+    token: str = Field(max_length=300)
+
+
+class PasswordResetIn(BaseModel):
+    token: str = Field(max_length=300)
+    password: str = Field(max_length=200)
+
+
+class MFALoginIn(BaseModel):
+    challenge: str = Field(max_length=300)
+    code: str = Field(max_length=20)
+
+
+class MFACodeIn(BaseModel):
+    code: str = Field(max_length=20)
 
 
 class AccountUpdate(BaseModel):
@@ -142,16 +199,25 @@ class AccountUpdate(BaseModel):
 
 @app.post("/api/auth/register")
 def api_register(body: RegisterIn, request: Request, response: Response):
+    # Honeypot field: normal users never fill this hidden input.
+    if body.website:
+        return _generic_email_sent()
     try:
         user = auth_store.register(body.email, body.name, body.password)
     except AuthError as e:
+        if _hide_account_existence() and "already exists" in str(e):
+            existing = auth_store.get_user_by_email(body.email)
+            if existing and _email_verification_required() and not existing.get("email_verified"):
+                _send_verification(existing)
+            return _generic_email_sent()
         raise HTTPException(status_code=400, detail=str(e))
+    if _email_verification_required():
+        _send_verification(user)
+        return {**user, "needs_verification": True}
     _set_session(response, request, user["id"])
-    # Fire welcome email asynchronously (fails silently if RESEND_API_KEY not set)
     import threading
-    threading.Thread(target=send_welcome, args=(user["email"], user["name"]),
-                     daemon=True).start()
-    return user
+    threading.Thread(target=send_welcome, args=(user["email"], user["name"]), daemon=True).start()
+    return {**user, "needs_verification": False}
 
 
 @app.post("/api/auth/login")
@@ -159,6 +225,67 @@ def api_login(body: LoginIn, request: Request, response: Response):
     user = auth_store.authenticate(body.email, body.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid email or password.")
+    if _email_verification_required() and not user.get("email_verified"):
+        _send_verification(user)
+        raise HTTPException(status_code=403, detail="Verify your email before signing in. We sent a new link.")
+    if auth_store.mfa_enabled(user["id"]):
+        challenge = auth_store.create_email_token(user["id"], "mfa_login", ttl=10 * 60)
+        return Response(
+            content=json.dumps({"mfa_required": True, "challenge": challenge}),
+            media_type="application/json",
+            status_code=202,
+        )
+    _set_session(response, request, user["id"])
+    return user
+
+
+@app.post("/api/auth/mfa/login")
+def api_mfa_login(body: MFALoginIn, request: Request, response: Response):
+    try:
+        user = auth_store.verify_mfa_login(body.challenge, body.code)
+    except AuthError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    _set_session(response, request, user["id"])
+    return user
+
+
+@app.post("/api/auth/verify")
+def api_verify_email(body: TokenIn, request: Request, response: Response):
+    try:
+        user = auth_store.verify_email_token(body.token)
+    except AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _set_session(response, request, user["id"])
+    import threading
+    threading.Thread(target=send_welcome, args=(user["email"], user["name"]), daemon=True).start()
+    return user
+
+
+@app.post("/api/auth/resend-verification")
+def api_resend_verification(body: EmailIn):
+    user = auth_store.get_user_by_email(body.email)
+    if user and not user.get("email_verified"):
+        _send_verification(user)
+    return _generic_email_sent()
+
+
+@app.post("/api/auth/password-reset/request")
+def api_password_reset_request(body: EmailIn):
+    result = auth_store.create_password_reset_token(body.email)
+    if result:
+        token, user = result
+        import threading
+        threading.Thread(target=send_password_reset,
+                         args=(user["email"], user["name"], token), daemon=True).start()
+    return _generic_email_sent()
+
+
+@app.post("/api/auth/password-reset/confirm")
+def api_password_reset_confirm(body: PasswordResetIn, request: Request, response: Response):
+    try:
+        user = auth_store.reset_password(body.token, body.password)
+    except AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     _set_session(response, request, user["id"])
     return user
 
@@ -166,7 +293,7 @@ def api_login(body: LoginIn, request: Request, response: Response):
 @app.post("/api/auth/logout")
 def api_logout(request: Request, response: Response):
     auth_store.delete_session(request.cookies.get(SESSION_COOKIE))
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    _clear_session_cookie(response, request)
     return {"ok": True}
 
 
@@ -175,13 +302,64 @@ def api_me(user: dict = Depends(require_user)):
     return user
 
 
+@app.get("/api/account/mfa")
+def api_mfa_status(user: dict = Depends(require_user)):
+    return auth_store.mfa_status(user["id"])
+
+
+@app.post("/api/account/mfa/setup")
+def api_mfa_setup(user: dict = Depends(require_user)):
+    secret = auth_store.setup_mfa(user["id"])
+    label = f"DebugAI:{user['email']}"
+    otpauth = f"otpauth://totp/{label}?secret={secret}&issuer=DebugAI"
+    return {"secret": secret, "otpauth_url": otpauth}
+
+
+@app.post("/api/account/mfa/enable")
+def api_mfa_enable(body: MFACodeIn, user: dict = Depends(require_user)):
+    try:
+        auth_store.enable_mfa(user["id"], body.code)
+    except AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return auth_store.mfa_status(user["id"])
+
+
+@app.post("/api/account/mfa/disable")
+def api_mfa_disable(body: MFACodeIn, user: dict = Depends(require_user)):
+    try:
+        auth_store.disable_mfa(user["id"], body.code)
+    except AuthError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return auth_store.mfa_status(user["id"])
+
+
+@app.get("/api/auth/sessions")
+def api_sessions_list(request: Request, user: dict = Depends(require_user)):
+    return {"items": auth_store.list_sessions(user["id"], request.cookies.get(SESSION_COOKIE))}
+
+
+@app.delete("/api/auth/sessions/{session_id}")
+def api_session_revoke(session_id: str, request: Request, user: dict = Depends(require_user)):
+    auth_store.revoke_session(user["id"], session_id, request.cookies.get(SESSION_COOKIE))
+    return {"ok": True}
+
+
+@app.post("/api/auth/logout-others")
+def api_logout_others(request: Request, user: dict = Depends(require_user)):
+    auth_store.delete_other_sessions(user["id"], request.cookies.get(SESSION_COOKIE))
+    return {"ok": True}
+
+
 @app.patch("/api/account")
 def api_account_update(body: AccountUpdate, user: dict = Depends(require_user)):
     if auth_store.authenticate(user["email"], body.current_password) is None:
         raise HTTPException(status_code=403, detail="Current password is incorrect.")
     try:
-        return auth_store.update_user(user["id"], name=body.name, email=body.email,
-                                      new_password=body.new_password)
+        updated = auth_store.update_user(user["id"], name=body.name, email=body.email,
+                                         new_password=body.new_password)
+        if _email_verification_required() and updated["email"] != user["email"]:
+            _send_verification(updated)
+        return updated
     except AuthError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -213,9 +391,8 @@ def api_account_delete(request: Request, response: Response, user: dict = Depend
     trace_store.purge(user["id"])
     with _tstores_lock:
         _tstores.pop(user["id"], None)
-    _seeded.discard(user["id"])
     auth_store.delete_user(user["id"])
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    _clear_session_cookie(response, request)
     return {"ok": True}
 
 
@@ -289,8 +466,8 @@ def _run(req: AnalyzeRequest, owner: str, judge: bool = False) -> dict:
     # bug" workbench — never on routine /api/analyze or seeding.
     # Keys are always the user's own — never the server's env keys.
     tstore = tstore_for(owner)
-    user_openai_key = auth_store.get_user_key(owner, "openai")
-    user_anthropic_key = auth_store.get_user_key(owner, "anthropic")
+    user_openai_key = auth_store.get_user_key(owner, "openai") or ""
+    user_anthropic_key = auth_store.get_user_key(owner, "anthropic") or ""
     diagnosis = analyze(
         prompt=req.prompt,
         output=req.output,
@@ -354,18 +531,6 @@ def _trace_for(req: AnalyzeRequest, rec: dict, owner: str) -> dict:
     return trace_store.add(data)
 
 
-def _ensure_seeded(owner: str) -> None:
-    """Give a fresh account sample data the first time it opens the dashboard."""
-    if owner in _seeded:
-        return
-    _seeded.add(owner)
-    if store.stats(owner)["total"] == 0 and not os.environ.get("DEBUGAI_NO_SEED"):
-        try:
-            _seed_for(owner)
-        except Exception:
-            log.exception("per-user seed failed")
-
-
 @app.post("/api/analyze")
 def api_analyze(req: AnalyzeRequest, user: dict = Depends(require_user)):
     try:
@@ -386,12 +551,12 @@ def api_diagnoses(failure: str | None = None,
 @app.get("/api/health")
 def api_health():
     """Liveness/readiness probe (no auth) — used by Docker HEALTHCHECK / LBs."""
-    return {"status": "ok"}
+    db = db_status()
+    return {"status": "ok" if db["connected"] else "degraded", "database": db}
 
 
 @app.get("/api/stats")
 def api_stats(user: dict = Depends(require_user)):
-    _ensure_seeded(user["id"])
     return store.stats(owner=_effective_owner(user["id"]))
 
 
@@ -418,14 +583,15 @@ def api_auth_debug(request: Request):
 @app.get("/api/thresholds")
 def api_thresholds(user: dict = Depends(require_user)):
     """Current adaptive-calibration state (regime, baseline, per-signal values)."""
-    return tstore_for(user["id"]).details()
+    return tstore_for(_effective_owner(user["id"])).details()
 
 
 @app.delete("/api/diagnoses")
 def api_clear(user: dict = Depends(require_user)):
-    store.purge(user["id"])
-    trace_store.purge(user["id"])
-    tstore_for(user["id"]).reset()
+    owner = _effective_owner(user["id"])
+    store.purge(owner)
+    trace_store.purge(owner)
+    tstore_for(owner).reset()
     return {"ok": True}
 
 
@@ -451,7 +617,7 @@ def api_ingest_trace(trace: TraceIn, user: dict = Depends(require_user)):
     """Ingest a trace emitted by the SDK (wrap_llm on_trace) or a client."""
     data = trace.model_dump()
     data["id"] = uuid.uuid4().hex[:12]
-    data["owner"] = user["id"]
+    data["owner"] = _effective_owner(user["id"])
     data["timestamp"] = datetime.now(timezone.utc).isoformat()
     return trace_store.add(data)
 
@@ -488,10 +654,10 @@ def _grounded_stub(system_prompt, user_prompt, chunks, temperature):
     return ("Per the provided context: " + ctx) if ctx else "I don't have that information."
 
 
-def _claude_rerun(model: str = "claude-haiku-4-5-20251001"):
+def _claude_rerun(api_key: str, model: str = "claude-haiku-4-5-20251001"):
     import anthropic
 
-    client = anthropic.Anthropic(timeout=30.0, max_retries=2)
+    client = anthropic.Anthropic(api_key=api_key, timeout=30.0, max_retries=2)
 
     def rerun(system_prompt, user_prompt, chunks, temperature):
         ctx = "\n\n".join(f"[chunk {i}] {c}" for i, c in enumerate(chunks))
@@ -506,11 +672,11 @@ def _claude_rerun(model: str = "claude-haiku-4-5-20251001"):
     return rerun
 
 
-def _openai_rerun(model: str | None = None):
+def _openai_rerun(api_key: str, model: str | None = None):
     model = model or os.environ.get("DEBUGAI_JUDGE_MODEL", "gpt-5.5")
     from openai import OpenAI
 
-    client = OpenAI(timeout=30.0, max_retries=2)
+    client = OpenAI(api_key=api_key, timeout=30.0, max_retries=2)
 
     def rerun(system_prompt, user_prompt, chunks, temperature):
         ctx = "\n\n".join(f"[chunk {i}] {c}" for i, c in enumerate(chunks))
@@ -525,14 +691,20 @@ def _openai_rerun(model: str | None = None):
     return rerun
 
 
-def _rerun_for(simulate: bool):
-    """Pick a model to re-run with: a live model if keyed, else a labeled stub."""
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return _claude_rerun(), "live"
-    if os.environ.get("OPENAI_API_KEY"):
-        return _openai_rerun(), "live"
+def _rerun_for(simulate: bool, user_id: str):
+    """Pick a rerun target.
+
+    Live reruns use only the signed-in user's stored key. Server env keys are not
+    used here, so public hosted users cannot spend the operator's LLM credits.
+    """
     if simulate:
         return _grounded_stub, "simulated"
+    anthropic_key = auth_store.get_user_key(user_id, "anthropic")
+    if anthropic_key:
+        return _claude_rerun(anthropic_key), "live"
+    openai_key = auth_store.get_user_key(user_id, "openai")
+    if openai_key:
+        return _openai_rerun(openai_key), "live"
     return None, "proposed"
 
 
@@ -551,8 +723,8 @@ def _capture_from_input(inp: dict) -> CaptureRecord:
     )
 
 
-def _run_fix(diagnosis: dict, record: CaptureRecord, simulate: bool) -> dict | None:
-    rerun, mode = _rerun_for(simulate)
+def _run_fix(diagnosis: dict, record: CaptureRecord, simulate: bool, user_id: str) -> dict | None:
+    rerun, mode = _rerun_for(simulate, user_id)
     report = propose_fix(diagnosis, record, rerun=rerun)
     if report is None:
         return None
@@ -567,7 +739,7 @@ def api_fix(diagnosis_id: str, simulate: bool = True, user: dict = Depends(requi
     rec = store.get(diagnosis_id, owner=_effective_owner(user["id"]))
     if rec is None:
         raise HTTPException(status_code=404, detail="diagnosis not found")
-    out = _run_fix(rec["diagnosis"], _capture_from_input(rec["input"]), simulate)
+    out = _run_fix(rec["diagnosis"], _capture_from_input(rec["input"]), simulate, user["id"])
     if out is None:
         return {"verdict": "none", "reason": "no agent for this diagnosis (or healthy)"}
     return out
@@ -591,7 +763,7 @@ def api_debug(req: DebugRequest, user: dict = Depends(require_user)):
         raise HTTPException(status_code=400, detail="diagnosis failed")
     fix = None
     if req.run_fix and not rec["diagnosis"].get("healthy"):
-        fix = _run_fix(rec["diagnosis"], _capture_from_input(rec["input"]), req.simulate)
+        fix = _run_fix(rec["diagnosis"], _capture_from_input(rec["input"]), req.simulate, user["id"])
     return {"record": rec, "fix": fix}
 
 
@@ -608,8 +780,8 @@ def api_playground(req: DebugRequest, user: dict = Depends(require_user)):
             tool_calls=req.tool_calls, tools_expected=req.tools_expected,
             response_schema=req.response_schema,
             thresholds=tstore_for(user["id"]).current(),
-            openai_api_key=auth_store.get_user_key(user["id"], "openai"),
-            anthropic_api_key=auth_store.get_user_key(user["id"], "anthropic"),
+            openai_api_key=auth_store.get_user_key(user["id"], "openai") or "",
+            anthropic_api_key=auth_store.get_user_key(user["id"], "anthropic") or "",
             # No judge here: the playground auto-analyzes on every keystroke, so an
             # LLM judge call per keystroke would be wasteful. Judge runs only in
             # the "Debug a bug" workbench (/api/debug).
@@ -627,16 +799,16 @@ def api_playground(req: DebugRequest, user: dict = Depends(require_user)):
             "tool_calls": req.tool_calls, "tools_expected": req.tools_expected,
             "response_schema": req.response_schema,
         })
-        fix = _run_fix(diagnosis, rec, req.simulate)
+        fix = _run_fix(diagnosis, rec, req.simulate, user["id"])
     return {"diagnosis": diagnosis, "ui": to_card(diagnosis), "fix": fix}
 
 
 def _seed_for(owner: str) -> int:
     """Seed the labeled sample dataset for one account."""
-    cases = json.loads(DATASET.read_text())["cases"]
+    cases = json.loads(DATASET.read_text())["cases"] + example_cases()
     for c in cases:
-        kwargs = {k: v for k, v in c.items() if k not in ("id", "expected", "_comment")}
-        req = AnalyzeRequest(label=c.get("id"), explain_with_llm=False,
+        kwargs = {k: v for k, v in c.items() if k not in ("id", "expected", "_comment", "label")}
+        req = AnalyzeRequest(label=c.get("id") or c.get("label"), explain_with_llm=False,
                              session_id="sample-data", model_name="claude-haiku-4-5",
                              **kwargs)
         _run(req, owner)
@@ -796,7 +968,7 @@ def api_get_workspace(user: dict = Depends(require_user)):
 def api_seed(user: dict = Depends(require_user)):
     """(Re)seed the signed-in account with the labeled sample dataset."""
     try:
-        return {"seeded": _seed_for(user["id"])}
+        return {"seeded": _seed_for(_effective_owner(user["id"]))}
     except Exception:
         log.exception("seed failed")
         raise HTTPException(status_code=500, detail="seeding failed")
@@ -837,17 +1009,23 @@ def pricing():
 
 
 @app.get("/login")
-def login_page(request: Request):
-    if current_user(request) is not None:
-        return RedirectResponse("/dashboard", status_code=302)
+def login_page():
     return _page("login.html")
 
 
 @app.get("/register")
-def register_page(request: Request):
-    if current_user(request) is not None:
-        return RedirectResponse("/dashboard", status_code=302)
+def register_page():
     return _page("register.html")
+
+
+@app.get("/verify-email")
+def verify_email_page():
+    return _page("verify-email.html")
+
+
+@app.get("/reset-password")
+def reset_password_page():
+    return _page("reset-password.html")
 
 
 @app.get("/account")

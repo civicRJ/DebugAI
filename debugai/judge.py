@@ -59,12 +59,12 @@ def judge_instructions(system_prompt: str, user_prompt: str, output: str,
                        api_key: str | None = None) -> InstructionDiagnosis:
     """Evaluate an assistant ``output`` against the rules in its ``system_prompt``.
 
-    Uses the OpenAI judge when an api_key is provided (or OPENAI_API_KEY env is
-    set as a fallback); otherwise uses the deterministic heuristic check."""
+    Uses the OpenAI judge when an api_key is provided. Passing api_key=None
+    allows the SDK/local CLI env fallback; passing "" disables env fallback."""
     if not (system_prompt or "").strip():
         return InstructionDiagnosis(healthy=True, confidence=0.0, model="n/a")
     model = model or DEFAULT_JUDGE_MODEL
-    effective_key = api_key or os.environ.get("OPENAI_API_KEY")
+    effective_key = os.environ.get("OPENAI_API_KEY") if api_key is None else api_key
     if effective_key:
         try:
             return _openai_judge(system_prompt, user_prompt, output, model,
@@ -94,7 +94,8 @@ def _openai_judge(system_prompt: str, user_prompt: str, output: str,
                   model: str, api_key: str | None = None) -> InstructionDiagnosis:
     from openai import OpenAI
 
-    client = OpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"),
+    effective_key = os.environ.get("OPENAI_API_KEY") if api_key is None else api_key
+    client = OpenAI(api_key=effective_key,
                     timeout=30.0, max_retries=2)
     payload = (
         f"SYSTEM PROMPT (rules):\n{system_prompt}\n\n"

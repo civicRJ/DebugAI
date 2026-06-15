@@ -10,11 +10,10 @@ DebugAI is built around the Python SDK first. Wrap your LLM client or call
 failure type, confidence, evidence, root cause, fix, and verification status.
 The hosted dashboard and traces are supporting views, not the core workflow.
 
-This repository implements **Phase 1 — the deterministic diagnosis core**
-(Steps 1–3 of the roadmap in `debugai_architecture_v3.pdf`): the signal engine,
-the rule engine, and the `analyze()` API with an LLM explainer — plus the
-**Level 2 `wrap_llm()` SDK wrapper** (Step 5) and a **web dashboard** (Step 6)
-built on the `Debug_AI/` design system.
+This repository includes the deterministic diagnosis core, the signal engine,
+the rule engine, the `analyze()` API with an optional LLM explainer, the
+`wrap_llm()` SDK wrapper, and a web dashboard built on the `Debug_AI/` design
+system.
 
 ## SDK quickstart
 
@@ -214,6 +213,127 @@ data groups; retrieval is attached via the mechanisms above. Pass
 `explain_with_llm=True` to also run the Layer-3 explainer, `sample_rate` to
 diagnose a fraction of traffic, and `context_window` to enable capacity signals.
 
+### SDK parameters
+
+`analyze()` is the lowest-level diagnosis call. Only `prompt` and `output` are
+required; everything else improves a specific signal or detector.
+
+| Parameter | Type | Purpose |
+|---|---|---|
+| `prompt` | `str` | User prompt / query. Required. |
+| `output` | `str` | LLM response to diagnose. Required. |
+| `system_prompt` | `str` | System/developer rules; enables instruction-adherence judging when `judge=True`. |
+| `chunks` | `list[str]` | Retrieved context chunks used for RAG grounding checks. |
+| `similarity_scores` | `list[float]` | Retriever scores aligned with `chunks`; drives retrieval-failure signals. |
+| `retrieval_query` | `str` | Query used by the retriever; useful when different from `prompt`. |
+| `expected_output` | `str` | Optional expected answer/reference for comparison. |
+| `model_name` | `str` | Model identifier attached to the diagnosis metadata. |
+| `temperature` | `float` | Generation temperature; used by prompt-brittleness signals. |
+| `max_tokens` | `int` | Requested output budget. |
+| `context_window` | `int` | Model context limit; enables context-overflow detection. |
+| `latency_ms` | `int` | End-to-end latency; contributes to capacity/overflow signals. |
+| `token_usage` | `dict[str, int]` | Token counts, usually `{"prompt": n, "completion": n, "total": n}`. |
+| `tool_calls` | `list[dict]` | Actual tool/function calls returned by the model. |
+| `tools_expected` | `list[str]` | Tool/function names the model was expected to call. |
+| `response_schema` | `dict` | JSON Schema used to detect structured-output violations. |
+| `thresholds` | `Thresholds` | Override detector thresholds for this call. |
+| `explain_with_llm` | `bool` | Run the optional LLM explainer. Defaults to `True` for `analyze()`. |
+| `lazy` | `bool` | Skip expensive signals when cheap signals already look healthy. |
+| `judge` | `bool` | Run instruction-adherence judge against `system_prompt`. |
+| `judge_model` | `str` | Override the judge model. |
+| `openai_api_key` | `str` | API key used by the judge. Falls back to env config. |
+| `anthropic_api_key` | `str` | API key used by the explainer. Falls back to env config. |
+| `variance_rerun` | `callable` | Callable used to re-run the model for measured variance. |
+| `variance_runs` | `int` | Number of measured-variance re-runs. Defaults to `3`. |
+
+`debug_report()` accepts the same capture fields as `analyze()` and adds:
+
+| Parameter | Type | Purpose |
+|---|---|---|
+| `run_fix` | `bool` | Run the matching fix agent and include `fix_report`. Defaults to `True`. |
+| `rerun` | `callable` | Optional model re-run function for fix verification. |
+| `explain_with_llm` | `bool` | Pass through to `analyze()` for LLM-generated explanations. |
+
+`wrap_llm()` accepts either individual kwargs or a `DebugAIConfig` object:
+
+| Parameter | Type | Purpose |
+|---|---|---|
+| `client` | provider client | OpenAI-compatible, Anthropic, Cohere, or registered custom client. |
+| `config` | `DebugAIConfig` | Full SDK configuration object. |
+| `on_diagnosis` | `callable` | Callback receiving each diagnosis dict. |
+| `on_trace` | `callable` | Callback receiving each trace object. |
+| `session_id` | `str` | Default trace/session id for wrapped calls. |
+| `explain_with_llm` | `bool` | Legacy shortcut for `DebugAIConfig(enable_explain=True)`. |
+| `context_window` | `int` | Context window applied to wrapped-call diagnoses. |
+| `thresholds` | `Thresholds` | Detector threshold override. |
+| `sample_rate` | `float` | Fraction of calls to diagnose/trace, from `0.0` to `1.0`. |
+
+`awrap_llm()` is the async equivalent. It accepts the same wrapper parameters
+except `explain_with_llm`; set `DebugAIConfig(enable_explain=True)` when async
+background explanations are needed.
+
+`debugai.completion()` / `debugai.acompletion()` provide a universal provider
+router:
+
+| Parameter | Type | Purpose |
+|---|---|---|
+| `model` | `str` | Model name; routed by prefix such as `gpt-`, `claude-`, `groq/`, `ollama/`, `openrouter/`, etc. |
+| `messages` | `list` | Chat messages passed to the provider. |
+| `config` | `DebugAIConfig` | Per-call SDK configuration; falls back to `set_default_config(...)` or defaults. |
+| `**kwargs` | provider kwargs | Forwarded to the provider, including `temperature`, `max_tokens`, `tools`, `response_format`, `stream`, and provider-specific options. |
+
+Per-call `debugai_*` kwargs can be passed directly to the wrapped provider call;
+DebugAI strips them before forwarding the request:
+
+| Kwarg | Purpose |
+|---|---|
+| `debugai_chunks` | Retrieved chunks for this one call. |
+| `debugai_similarity_scores` | Similarity scores aligned with `debugai_chunks`. |
+| `debugai_retrieval_query` | Retriever query for this one call. |
+
+Context helpers:
+
+| Helper | Parameters | Purpose |
+|---|---|---|
+| `retrieval_context(...)` | `chunks`, `similarity_scores=None`, `retrieval_query=None` | Attach RAG context to all wrapped calls inside the block. |
+| `session(...)` | `session_id` | Group wrapped calls into one conversation/session. |
+| `http_trace_sink(...)` | `url`, `token=None`, `timeout=5.0` | Build an `on_trace` callback that POSTs traces to a DebugAI server. |
+
+`DebugAIConfig` controls the background SDK behavior:
+
+| Field | Default | Purpose |
+|---|---:|---|
+| `enable_diagnosis` | `True` | Run the signal engine and detectors. |
+| `enable_traces` | `True` | Emit traces with spans, scores, latency, tokens, and cost. |
+| `enable_judge` | `False` | Run instruction-adherence judge. |
+| `enable_explain` | `False` | Run LLM explainer in background diagnoses. |
+| `lazy` | `True` | Avoid expensive signals when not needed. |
+| `sample_rate` | `1.0` | Diagnose/trace only a fraction of traffic. |
+| `max_queue_depth` | `10000` | Drop excess background jobs instead of slowing LLM calls. |
+| `track_tokens` | `True` | Accumulate token usage metrics. |
+| `track_cost` | `True` | Estimate and accumulate request cost. |
+| `track_latency` | `True` | Track latency metrics. |
+| `on_diagnosis` | `None` | Diagnosis callback. |
+| `on_trace` | `None` | Trace callback. |
+| `on_metrics` | `None` | Per-request metrics callback. |
+| `sink_url` | `None` | POST traces to a DebugAI server. |
+| `sink_token` | `None` | API token for `sink_url`. |
+| `session_id` | `None` | Default session id. |
+| `tags` | `{}` | Tags attached to traces/diagnoses. |
+| `thresholds` | defaults | Detector threshold overrides. |
+| `ollama_base_url` | `http://localhost:11434/v1` | Local Ollama-compatible endpoint. |
+| `model_prices` | `None` | Override pricing table for cost estimates. |
+| `fallbacks` | `[]` | Fallback models for `debugai.completion()`. |
+| `response_schema` | `None` | Schema validation for structured outputs. |
+| `on_schema_violation` | `None` | Callback for schema violations. |
+| `budget_usd` | `None` | Soft spend cap for `debugai.completion()`. |
+| `on_budget_exceeded` | `None` | Callback when budget is exhausted. |
+| `cache_ttl_seconds` | `None` | Cache identical `completion()` requests. |
+| `max_retries` | `2` | Retry transient provider failures. |
+| `retry_backoff_seconds` | `1.0` | Base retry backoff. |
+| `latency_sla_ms` | `None` | Alert threshold for slow calls. |
+| `on_sla_breach` | `None` | Callback for latency SLA breaches. |
+
 ## Deploy (Docker)
 
 ```bash
@@ -274,7 +394,7 @@ client.chat.completions.create(...)   # → diagnosis + trace land in your dashb
 Tokens are revocable (`DELETE /api/account/tokens/{id}`) and are purged when the
 account is deleted.
 
-## Web app (Step 6)
+## Web app
 
 A FastAPI backend serves the site built entirely on the `Debug_AI/` design
 system:
@@ -363,7 +483,7 @@ Importable with or without `langchain` installed; diagnosis failures never
 break the chain. (Without retriever scores it can't judge retrieval quality, but
 it still catches ungrounded answers — hallucination / entity gap.)
 
-### Adaptive thresholds (§7.2)
+### Adaptive thresholds
 
 `debugai/calibration.py` provides a per-user `ThresholdStore` that learns a
 "known good" baseline from healthy requests and tightens the gating thresholds
@@ -418,7 +538,7 @@ analyze(prompt, output, system_prompt=tutor_rules, judge=True)
   dashboard. (Server runs the judge automatically whenever a system prompt is
   supplied.)
 
-## Fix Agent Framework (Phase 2, §8)
+## Fix Agent Framework
 
 `debugai/agents/` implements the universal **diagnose → generate-fix →
 regression-test → re-diagnose → review** loop. The agent (fix + test
@@ -456,7 +576,7 @@ test suite without executing them).
 | Ambiguity Gate | ambiguous prompt | ask a clarifying question before answering | verified when the model clarifies |
 | Socratic Tutor | instruction violation | tighten behavioral rules and re-judge | verified when the judge clears |
 
-**Plugin architecture (§8.5):** custom agents register at the front and win
+**Plugin architecture:** custom agents register at the front and win
 over built-ins:
 
 ```python
@@ -533,12 +653,12 @@ contradiction while still catching real contradictions ~0.99.
 
 ### Deep-mode variance & Tier-3 NER
 
-- **Measured variance (§7.5 Tier 2):** pass `variance_rerun=<callable>` (and
+- **Measured variance:** pass `variance_rerun=<callable>` (and
   `variance_runs`) to `analyze()` to replace the temperature proxy with a real
   measure — it re-runs the model N times and scores `1 − mean pairwise
   similarity` (signal `variance_method` becomes `"measured"`). Opt-in (costs N
   calls), for async/CI.
-- **Tier-3 NER fallback (§7.1):** when spaCy + regex extract nothing, an LLM can
+- **NER fallback:** when spaCy + regex extract nothing, an LLM can
   extract entities — opt-in via `DEBUGAI_LLM_NER=1` (+ `OPENAI_API_KEY`), off by
   default so normal runs make no LLM calls.
 
@@ -548,21 +668,7 @@ contradiction while still catching real contradictions ~0.99.
 pytest -q
 ```
 
-`tests/dataset/failures.json` holds 20 labeled failures (Step 0). The suite
-asserts the rule engine meets the roadmap's **≥16/20 (80%)** acceptance bar —
-it currently classifies **20/20**, and reproduces the doc's worked Scenario A
-(retrieval failure, confidence 0.95).
-
-## Roadmap status
-
-- [x] Step 0 — 20 labeled failures (`tests/dataset/failures.json`)
-- [x] Step 1 — signal extraction layer
-- [x] Step 2 — rule engine
-- [x] Step 3 — `analyze()` + LLM explainer (this MVP)
-- [ ] Step 4 — test with 5 real users
-- [x] Step 5 — SDK wrapper (`wrap_llm()`, Level 2)
-- [x] Step 6 — dashboard (`server/`) + adaptive thresholds (`debugai/calibration.py`)
-- [x] Phase 2 — fix-agent framework (`debugai/agents/`)
-- [x] Observability — native traces / spans / sessions / scores / cost (`debugai/tracing.py`)
-- [x] Playground + `debugai` CLI
-- [ ] Phase 2b — community plugin registry + fix-success data sharing
+`tests/dataset/failures.json` holds 20 labeled failures. The suite asserts the
+rule engine stays above the **80%** acceptance bar — it currently classifies
+**20/20**, and reproduces the worked Scenario A (retrieval failure, confidence
+0.95).

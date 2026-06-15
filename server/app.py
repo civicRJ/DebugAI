@@ -114,6 +114,15 @@ def require_user(request: Request) -> dict:
     return user
 
 
+def _client_user(user: dict) -> dict:
+    """Minimal browser-facing account payload. Internal handlers keep full rows."""
+    return {
+        "email": user.get("email", ""),
+        "name": user.get("name", ""),
+        "email_verified": bool(user.get("email_verified", False)),
+    }
+
+
 def _email_verification_required() -> bool:
     explicit = os.environ.get("DEBUGAI_REQUIRE_EMAIL_VERIFICATION")
     if explicit is not None:
@@ -226,11 +235,11 @@ def api_register(body: RegisterIn, request: Request, response: Response):
         raise HTTPException(status_code=400, detail=str(e))
     if _email_verification_required():
         _send_verification(user)
-        return {**user, "needs_verification": True}
+        return {**_client_user(user), "needs_verification": True}
     _set_session(response, request, user["id"])
     import threading
     threading.Thread(target=send_welcome, args=(user["email"], user["name"]), daemon=True).start()
-    return {**user, "needs_verification": False}
+    return {**_client_user(user), "needs_verification": False}
 
 
 @app.post("/api/auth/login")
@@ -249,7 +258,7 @@ def api_login(body: LoginIn, request: Request, response: Response):
             status_code=202,
         )
     _set_session(response, request, user["id"])
-    return user
+    return _client_user(user)
 
 
 @app.post("/api/auth/mfa/login")
@@ -259,7 +268,7 @@ def api_mfa_login(body: MFALoginIn, request: Request, response: Response):
     except AuthError as e:
         raise HTTPException(status_code=401, detail=str(e))
     _set_session(response, request, user["id"])
-    return user
+    return _client_user(user)
 
 
 @app.post("/api/auth/verify")
@@ -271,7 +280,7 @@ def api_verify_email(body: TokenIn, request: Request, response: Response):
     _set_session(response, request, user["id"])
     import threading
     threading.Thread(target=send_welcome, args=(user["email"], user["name"]), daemon=True).start()
-    return user
+    return _client_user(user)
 
 
 @app.post("/api/auth/resend-verification")
@@ -300,7 +309,7 @@ def api_password_reset_confirm(body: PasswordResetIn, request: Request, response
     except AuthError as e:
         raise HTTPException(status_code=400, detail=str(e))
     _set_session(response, request, user["id"])
-    return user
+    return _client_user(user)
 
 
 @app.post("/api/auth/logout")
@@ -312,7 +321,7 @@ def api_logout(request: Request, response: Response):
 
 @app.get("/api/auth/me")
 def api_me(user: dict = Depends(require_user)):
-    return user
+    return _client_user(user)
 
 
 @app.get("/api/account/mfa")
@@ -372,7 +381,7 @@ def api_account_update(body: AccountUpdate, user: dict = Depends(require_user)):
                                          new_password=body.new_password)
         if _email_verification_required() and updated["email"] != user["email"]:
             _send_verification(updated)
-        return updated
+        return _client_user(updated)
     except AuthError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -425,6 +434,14 @@ class AnalyzeRequest(BaseModel):
     response_schema: dict | None = None
     model_name: str | None = Field(default=None, max_length=200)
     explain_with_llm: bool = False
+    lazy: bool = Field(
+        default=True,
+        description="skip expensive semantic checks when cheap signals are already decisive",
+    )
+    deep: bool = Field(
+        default=False,
+        description="force full semantic analysis; slower but useful for manual audits",
+    )
     label: str | None = Field(default=None, description="optional human label")
     issue: str | None = Field(default=None, description="free-text description of the bug")
     session_id: str | None = Field(default=None, description="group traces into a session")
@@ -460,6 +477,8 @@ def _record(req_dict: dict, diagnosis: dict, owner: str) -> dict:
             "tool_calls": req_dict.get("tool_calls") or [],
             "tools_expected": req_dict.get("tools_expected") or [],
             "response_schema": req_dict.get("response_schema"),
+            "lazy": req_dict.get("lazy", True),
+            "deep": req_dict.get("deep", False),
         },
         "diagnosis": diagnosis,
         "ui": to_card(diagnosis),
@@ -497,6 +516,7 @@ def _run(req: AnalyzeRequest, owner: str, judge: bool = False) -> dict:
         response_schema=req.response_schema,
         model_name=req.model_name,
         explain_with_llm=req.explain_with_llm,
+        lazy=req.lazy and not req.deep,
         thresholds=tstore.current(),
         judge=judge and bool((req.system_prompt or "").strip()),
         openai_api_key=user_openai_key,
@@ -585,7 +605,7 @@ def api_auth_debug(request: Request):
     return {
         "cookie_present": bool(cookie),
         "cookie_length": len(cookie) if cookie else 0,
-        "user": user,
+        "user": _client_user(user) if user else None,
         "scheme": request.url.scheme,
         "trust_proxy": bool(trust_proxy),
         "forwarded_proto": forwarded_proto,

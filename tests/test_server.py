@@ -7,7 +7,7 @@ os.environ["DEBUGAI_NO_SEED"] = "1"  # don't auto-seed (model load) during tests
 import pytest
 from fastapi.testclient import TestClient
 
-from server.app import SESSION_COOKIE, app, auth_store, store, trace_store
+from server.app import AnalyzeRequest, SESSION_COOKIE, app, auth_store, store, trace_store
 
 
 @pytest.fixture()
@@ -320,7 +320,9 @@ def test_register_login_logout_me():
         r = c.post("/api/auth/register", json={"email": "a@b.com", "name": "Ada", "password": "password123"})
         assert r.status_code == 200 and r.json()["email"] == "a@b.com"
         assert SESSION_COOKIE in r.cookies or c.cookies.get(SESSION_COOKIE)
-        assert c.get("/api/auth/me").json()["name"] == "Ada"
+        me = c.get("/api/auth/me").json()
+        assert me["name"] == "Ada"
+        assert "id" not in me and "created_at" not in me
         c.post("/api/auth/logout")
         assert c.get("/api/auth/me").status_code == 401
 
@@ -368,7 +370,7 @@ def test_password_reset_and_session_management():
     with TestClient(app) as c:
         c.post("/api/auth/register",
                json={"email": "reset@example.com", "name": "Reset", "password": "password123"})
-        user = c.get("/api/auth/me").json()
+        user = auth_store.get_user_by_email("reset@example.com")
         r = c.post("/api/auth/password-reset/request", json={"email": "missing@example.com"})
         assert r.status_code == 200
         assert "eligible" in r.json()["message"]
@@ -495,9 +497,16 @@ def test_api_token_grants_programmatic_access(client):
 
     # revoke → token no longer works
     listed = client.get("/api/account/tokens").json()["items"]
+    assert "token" not in listed[0] and "token_hash" not in listed[0]
     client.delete("/api/account/tokens/" + listed[0]["id"])
     with TestClient(app) as svc:
         assert svc.get("/api/stats", headers={"X-API-Key": tok["token"]}).status_code == 401
+
+
+def test_analyze_request_defaults_to_fast_lazy_mode():
+    req = AnalyzeRequest(prompt="q", output="a")
+    assert req.lazy is True
+    assert req.deep is False
 
 
 def test_data_endpoints_require_auth():

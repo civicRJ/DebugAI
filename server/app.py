@@ -80,7 +80,14 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="DebugAI Dashboard", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="DebugAI Dashboard",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+)
 install_security(app)
 
 
@@ -108,11 +115,17 @@ def require_user(request: Request) -> dict:
 
 
 def _email_verification_required() -> bool:
-    return bool(os.environ.get("DEBUGAI_REQUIRE_EMAIL_VERIFICATION") or os.environ.get("DATABASE_URL"))
+    explicit = os.environ.get("DEBUGAI_REQUIRE_EMAIL_VERIFICATION")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(os.environ.get("DATABASE_URL"))
 
 
 def _hide_account_existence() -> bool:
-    return bool(os.environ.get("DEBUGAI_HIDE_ACCOUNT_EXISTENCE") or os.environ.get("DATABASE_URL"))
+    explicit = os.environ.get("DEBUGAI_HIDE_ACCOUNT_EXISTENCE")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(os.environ.get("DATABASE_URL"))
 
 
 def _send_verification(user: dict) -> None:
@@ -1006,6 +1019,11 @@ def home():
 @app.get("/pricing")
 def pricing():
     return _page("pricing.html")
+
+
+@app.get("/docs")
+def docs():
+    return _page("docs.html")
 
 
 @app.get("/login")

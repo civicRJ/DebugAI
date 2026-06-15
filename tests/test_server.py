@@ -282,6 +282,12 @@ def test_health_endpoint_is_public(client):
     assert body["database"]["connected"] is True
 
 
+def test_docs_page_is_public(client):
+    r = client.get("/docs")
+    assert r.status_code == 200
+    assert "Use DebugAI locally" in r.text
+
+
 def test_gated_pages_are_no_store(client):
     # client fixture is authenticated → dashboard served with no-store so the
     # browser can't show a cached page after logout.
@@ -338,6 +344,21 @@ def test_email_verification_required_flow(monkeypatch):
         assert verified.status_code == 200
         assert verified.json()["email_verified"] is True
         assert c.get("/api/auth/me").status_code == 200
+    monkeypatch.delenv("DEBUGAI_REQUIRE_EMAIL_VERIFICATION", raising=False)
+    auth_store.clear()
+
+
+def test_email_verification_can_be_disabled_with_database_url(monkeypatch):
+    auth_store.clear()
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example")
+    monkeypatch.setenv("DEBUGAI_REQUIRE_EMAIL_VERIFICATION", "0")
+    with TestClient(app) as c:
+        r = c.post("/api/auth/register",
+                   json={"email": "noverify@example.com", "name": "No Verify", "password": "password123"})
+        assert r.status_code == 200
+        assert r.json()["needs_verification"] is False
+        assert c.get("/api/auth/me").status_code == 200
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("DEBUGAI_REQUIRE_EMAIL_VERIFICATION", raising=False)
     auth_store.clear()
 

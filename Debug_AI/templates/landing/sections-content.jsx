@@ -233,7 +233,7 @@ function Footer() {
           <a href="/dashboard">Dashboard</a>
           <a href="/pricing">Pricing</a>
           <a href="https://github.com/civicRJ/DebugAI">GitHub</a>
-          <a href="#how">Docs</a>
+          <a href="/docs">Docs</a>
         </div>
       </div>
     </footer>

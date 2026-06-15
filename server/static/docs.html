@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DebugAI — Documentation</title>
+<meta name="description" content="DebugAI documentation for SDK usage, dashboard workflows, traces, API tokens, deployment, and troubleshooting." />
+<link rel="stylesheet" href="/ds/styles.css" />
+<link rel="stylesheet" href="/static/docs.css" />
+</head>
+<body>
+<div class="docs-page">
+  <nav class="docs-nav">
+    <a class="docs-brand" href="/">
+      <svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <path d="M16 2 4 9v14l12 7 12-7V9L16 2Z" stroke="currentColor" stroke-width="1.5" opacity="0.35"/>
+        <path d="M16 9v8m0 0 6-3.5M16 17l-6-3.5M16 17v6" stroke="#EF9F27" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="16" cy="17" r="2.4" fill="#EF9F27"/>
+      </svg>
+      <span>Debug<b>AI</b></span>
+    </a>
+    <div class="docs-nav__links">
+      <a href="/dashboard">Dashboard</a>
+      <a href="/pricing">Pricing</a>
+      <a href="/register" class="docs-nav__cta">Start free</a>
+    </div>
+  </nav>
+
+  <header class="docs-hero">
+    <div class="docs-shell docs-hero__inner">
+      <div>
+        <p class="docs-kicker">Documentation</p>
+        <h1>Use DebugAI locally, in your app, or with the hosted dashboard.</h1>
+        <p>
+          DebugAI names LLM failures, shows the evidence, and recommends a fix.
+          The local SDK works without an account. The hosted dashboard stores
+          traces, diagnoses, sessions, API tokens, and account settings.
+        </p>
+      </div>
+      <div class="docs-quick">
+        <h2>Fastest start</h2>
+        <pre><code>pip install debugerai</code></pre>
+        <pre><code>from debugai import analyze
+
+result = analyze(
+    prompt="What is the refund policy?",
+    output="Refunds are always 90 days.",
+    chunks=["Electronics can be returned within 30 days."],
+    similarity_scores=[0.72],
+)
+
+print(result["primary"])</code></pre>
+      </div>
+    </div>
+  </header>
+
+  <main class="docs-shell docs-layout">
+    <aside class="docs-toc" aria-label="Documentation sections">
+      <a href="#concepts">Core Concepts</a>
+      <a href="#local-sdk">Local SDK</a>
+      <a href="#wrap">Wrap An LLM</a>
+      <a href="#hosted">Hosted Dashboard</a>
+      <a href="#tokens">API Tokens</a>
+      <a href="#traces">Traces</a>
+      <a href="#playground">Playground</a>
+      <a href="#fixes">Fix Agents</a>
+      <a href="#accounts">Accounts</a>
+      <a href="#deployment">Deployment</a>
+      <a href="#troubleshooting">Troubleshooting</a>
+    </aside>
+
+    <div class="docs-content">
+      <section id="concepts" class="docs-section">
+        <h2>Core Concepts</h2>
+        <div class="docs-grid">
+          <article>
+            <h3>Diagnosis</h3>
+            <p>A structured result that says whether the response is healthy, the primary failure type, confidence, root cause, evidence, and a fix.</p>
+          </article>
+          <article>
+            <h3>Signals</h3>
+            <p>Deterministic measurements such as retrieval similarity, context overlap, entity coverage, contradiction, variance, latency, token ratio, and context ratio.</p>
+          </article>
+          <article>
+            <h3>Detectors</h3>
+            <p>Rules that map signals into failure names like retrieval failure, hallucination, schema violation, tool call failure, prompt brittleness, or ambiguity.</p>
+          </article>
+          <article>
+            <h3>Fix</h3>
+            <p>Actionable guidance, and optionally a fix-agent report that proposes a change, runs a regression check, and re-diagnoses the result.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="local-sdk" class="docs-section">
+        <h2>Use The SDK Without Logging In</h2>
+        <p>
+          The free local SDK does not require a website account. Use this mode
+          when you want diagnosis in scripts, tests, notebooks, CI, or local apps.
+        </p>
+        <pre><code>from debugai import debug_report
+
+report = debug_report(
+    prompt="Answer with citations.",
+    output="The policy allows returns for 90 days [9].",
+    chunks=["[1] Electronics can be returned within 30 days."],
+    similarity_scores=[0.69],
+    run_fix=True,
+)
+
+print(report["failure"])
+print(report["evidence"])
+print(report["fix"])</code></pre>
+        <div class="docs-callout">
+          <b>No account needed:</b> local calls do not send data to the hosted
+          dashboard unless you explicitly configure a trace sink.
+        </div>
+      </section>
+
+      <section id="wrap" class="docs-section">
+        <h2>Wrap An Existing LLM Client</h2>
+        <p>
+          Use <code>wrap_llm()</code> when you already call OpenAI, Anthropic,
+          Cohere, or an OpenAI-compatible endpoint. Your normal LLM call remains
+          the same; DebugAI captures prompt/output/runtime metadata and diagnoses
+          in the background.
+        </p>
+        <pre><code>from openai import OpenAI
+from debugai import wrap_llm, retrieval_context
+
+client = wrap_llm(OpenAI(), on_diagnosis=lambda d: print(d["primary"]))
+
+chunks = ["Electronics can be returned within 30 days."]
+scores = [0.72]
+
+with retrieval_context(chunks, similarity_scores=scores):
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "user", "content": "What is the refund policy?"}
+        ],
+    )
+
+client.debugai.flush()</code></pre>
+        <h3>Per-call RAG Context</h3>
+        <pre><code>client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "What is the refund policy?"}],
+    debugai_chunks=chunks,
+    debugai_similarity_scores=scores,
+    debugai_retrieval_query="refund policy electronics",
+)</code></pre>
+      </section>
+
+      <section id="hosted" class="docs-section">
+        <h2>Use The Hosted Dashboard</h2>
+        <ol>
+          <li>Create an account from <a href="/register">Register</a>.</li>
+          <li>Open <a href="/dashboard">Dashboard</a>.</li>
+          <li>Click <b>Load sample data</b> to see example diagnoses.</li>
+          <li>Use filters to inspect failures by type.</li>
+          <li>Open a diagnosis card to review evidence, signals, and fix guidance.</li>
+        </ol>
+        <p>
+          Dashboard data is scoped to your account. Another user cannot see your
+          diagnoses, traces, sessions, or calibration data.
+        </p>
+      </section>
+
+      <section id="tokens" class="docs-section">
+        <h2>API Tokens</h2>
+        <p>
+          API tokens let SDK scripts send traces into your hosted dashboard.
+          Create them from <a href="/account">Account</a> after logging in.
+        </p>
+        <ol>
+          <li>Go to Account.</li>
+          <li>Open API tokens.</li>
+          <li>Create a token and copy it once.</li>
+          <li>Use it as <code>X-API-Key</code> or <code>Authorization: Bearer</code>.</li>
+        </ol>
+        <pre><code>from openai import OpenAI
+from debugai import wrap_llm, http_trace_sink
+
+client = wrap_llm(
+    OpenAI(),
+    on_trace=http_trace_sink(
+        "https://your-app.onrender.com/api/traces",
+        token="dbg_your_token_here",
+    ),
+)</code></pre>
+      </section>
+
+      <section id="traces" class="docs-section">
+        <h2>Traces, Sessions, And Cost</h2>
+        <p>
+          Traces are observability records for LLM calls. Each trace can include
+          retrieval and generation spans, latency, tokens, estimated cost, and
+          DebugAI diagnosis scores.
+        </p>
+        <pre><code>from debugai import session
+
+with session("support-ticket-42"):
+    client.chat.completions.create(...)</code></pre>
+        <p>
+          In the dashboard, use the <b>Traces</b> tab for individual requests and
+          the <b>Sessions</b> tab for conversation-level rollups.
+        </p>
+      </section>
+
+      <section id="playground" class="docs-section">
+        <h2>Playground</h2>
+        <p>
+          The Playground is a non-storing editor for testing a prompt, output,
+          chunks, similarity scores, temperature, and system prompt. Use it to
+          understand why a case fails before wiring the SDK into your app.
+        </p>
+        <ol>
+          <li>Open <a href="/playground">Playground</a>.</li>
+          <li>Paste the user prompt and bad LLM output.</li>
+          <li>Add retrieved chunks and similarity scores for RAG cases.</li>
+          <li>Review the primary diagnosis and signal bars.</li>
+          <li>Apply a proposed fix to the system prompt and re-check.</li>
+        </ol>
+      </section>
+
+      <section id="fixes" class="docs-section">
+        <h2>Fix Agents</h2>
+        <p>
+          Fix agents convert a diagnosis into a proposed change and optional
+          verification. They are selected by failure type: retrieval failures,
+          hallucinations, schema violations, tool failures, citation failures,
+          prompt brittleness, context overflow, ambiguity, and instruction
+          violations all route to different repair strategies.
+        </p>
+        <pre><code>from debugai import analyze
+from debugai.agents import propose_fix
+from debugai.schema import CaptureRecord
+
+diag = analyze(prompt, output, chunks=chunks, similarity_scores=scores)
+report = propose_fix(diag, CaptureRecord(
+    user_prompt=prompt,
+    llm_output=output,
+    retrieved_chunks=chunks,
+    similarity_scores=scores,
+))
+
+print(report.verdict)
+print(report.fix)</code></pre>
+      </section>
+
+      <section id="accounts" class="docs-section">
+        <h2>Accounts And Login</h2>
+        <p>
+          Website accounts are only required for hosted storage, dashboard access,
+          API tokens, team/org features, and stored LLM keys. Local SDK diagnosis
+          remains account-free.
+        </p>
+        <ul>
+          <li><b>Register/Login:</b> creates a private workspace.</li>
+          <li><b>Account:</b> update name, email, password, API tokens, and LLM keys.</li>
+          <li><b>Email verification:</b> optional if disabled by deployment config; recommended for production.</li>
+          <li><b>LLM keys:</b> encrypted with <code>DEBUGAI_KEY_SECRET</code>.</li>
+        </ul>
+      </section>
+
+      <section id="deployment" class="docs-section">
+        <h2>Deployment Basics</h2>
+        <p>
+          For hosted deployments, set <code>DATABASE_URL</code> so accounts,
+          sessions, tokens, diagnoses, and traces are stored in Postgres.
+        </p>
+        <pre><code>DATABASE_URL=postgresql://user:password@host:5432/database
+DEBUGAI_KEY_SECRET=replace-with-a-long-random-secret
+DEBUGAI_TRUST_PROXY=1
+DEBUGAI_STRICT_CSRF=1
+DEBUGAI_APP_URL=https://your-app.onrender.com</code></pre>
+        <p>
+          To temporarily disable verification emails while you configure Resend:
+        </p>
+        <pre><code>DEBUGAI_REQUIRE_EMAIL_VERIFICATION=0</code></pre>
+        <p>
+          To enable transactional email:
+        </p>
+        <pre><code>RESEND_API_KEY=re_...
+DEBUGAI_FROM_EMAIL=DebugAI &lt;hello@yourdomain.com&gt;
+DEBUGAI_REQUIRE_EMAIL_VERIFICATION=1</code></pre>
+      </section>
+
+      <section id="troubleshooting" class="docs-section">
+        <h2>Troubleshooting</h2>
+        <details>
+          <summary>How do I know Postgres is connected?</summary>
+          <p>Open <code>/api/health</code>. You want <code>"backend": "postgres"</code> and <code>"connected": true</code>.</p>
+        </details>
+        <details>
+          <summary>Why did registration say a verification email was sent but none arrived?</summary>
+          <p>Set <code>RESEND_API_KEY</code>, <code>DEBUGAI_FROM_EMAIL</code>, and <code>DEBUGAI_APP_URL</code>, then redeploy. For temporary testing, set <code>DEBUGAI_REQUIRE_EMAIL_VERIFICATION=0</code>.</p>
+        </details>
+        <details>
+          <summary>Why are SDK traces not in the dashboard?</summary>
+          <p>Use <code>http_trace_sink(..., token="dbg_...")</code> and confirm the token belongs to the same account you are viewing.</p>
+        </details>
+        <details>
+          <summary>Can users use DebugAI without logging in?</summary>
+          <p>Yes. The local SDK works without login. Login is only needed for hosted dashboard storage and API tokens.</p>
+        </details>
+      </section>
+    </div>
+  </main>
+
+  <footer class="docs-footer">
+    <a href="/">Back to DebugAI</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/pricing">Pricing</a>
+    <a href="https://github.com/civicRJ/DebugAI">GitHub</a>
+  </footer>
+</div>
+</body>
+</html>

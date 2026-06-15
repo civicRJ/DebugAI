@@ -246,7 +246,9 @@ and every account's data is **private**.
   when signed out.
 - **Per-user isolation:** diagnoses, traces, sessions, and adaptive calibration
   are all scoped to the signed-in account (`owner`); a new account starts with
-  its own auto-seeded sample data and can never see another user's data.
+  its own workspace and can never see another user's data. Sample data loads
+  only when requested, so the dashboard does not spend first-page-load time
+  diagnosing demo cases.
   Deleting an account purges all of its data.
 - **API:** `POST /api/auth/register|login|logout`, `GET /api/auth/me`,
   `PATCH /api/account`, `DELETE /api/account`. All `/api/*` data endpoints
@@ -289,8 +291,9 @@ uvicorn server.app:app --reload
   routes into the dashboard.
 - **`/dashboard` — the app.** Ranked diagnosis cards with the 8-signal breakdown +
   confidence + fix (`DiagnosticCard` + `SignalIndicator`), filter by failure type, live
-  stats, an adaptive-calibration strip, and a per-card **Propose fix** button. Seeds the
-  20 labeled cases on first run so the board isn't empty.
+  stats, an adaptive-calibration strip, and a per-card **Propose fix** button. The
+  **Load sample data** button seeds representative cases, including schema, tool,
+  citation, ambiguity, RAG, and grounding failures.
 
 ### Observability (traces · sessions · cost)
 
@@ -387,7 +390,7 @@ API:
 | `GET` | `/api/diagnoses?failure=` | recent diagnoses, optionally filtered |
 | `GET` | `/api/stats` | counts by failure type |
 | `DELETE` | `/api/diagnoses` | clear history |
-| `POST` | `/api/seed` | (re)seed from the labeled dataset |
+| `POST` | `/api/seed` | load sample debugging cases |
 
 `server/ui_adapter.py` maps each diagnosis to design-system props (severity,
 per-signal anomaly status vs thresholds, normalized confidence bars), so the

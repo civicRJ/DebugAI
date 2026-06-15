@@ -35,3 +35,19 @@ def get_engine():
         f"sqlite:///{DATA_DIR / 'debugai.db'}",
         connect_args={"check_same_thread": False},
     )
+
+
+def backend_name() -> str:
+    """Return the active database backend name without exposing credentials."""
+    return "postgres" if DATABASE_URL else "sqlite"
+
+
+def status() -> dict:
+    """Check database connectivity for health/debug endpoints."""
+    from sqlalchemy import text
+    try:
+        with get_engine().connect() as conn:
+            conn.execute(text("SELECT 1"))
+        return {"backend": backend_name(), "connected": True}
+    except Exception as e:
+        return {"backend": backend_name(), "connected": False, "error": e.__class__.__name__}

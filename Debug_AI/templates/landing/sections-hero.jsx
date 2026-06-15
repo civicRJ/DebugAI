@@ -85,12 +85,68 @@ const DEMO_CASES = [
     confidence: 0.75,
     fix: "Lower temperature to 0.2. Add a severity rubric with few-shot examples.",
   },
+  {
+    label: "Schema violation",
+    request: "Return JSON for this ticket.",
+    signals: [
+      { name: "schema.required", value: "missing answer", confidence: 0.95, status: "critical" },
+      { name: "schema.enum", value: "status=maybe", confidence: 0.85, status: "critical" },
+      { name: "json.valid", value: "true", confidence: 1.0, status: "trace" },
+      { name: "repair.ready", value: "retry", confidence: 0.72, status: "trace" },
+    ],
+    failure: "schema_violation",
+    confidence: 0.88,
+    fix: "Enable strict structured output and retry with the validation errors.",
+  },
+  {
+    label: "Tool failure",
+    request: "Search current shipping cutoff.",
+    signals: [
+      { name: "tool.expected", value: "search", confidence: 1.0, status: "critical" },
+      { name: "tool.calls", value: "0", confidence: 1.0, status: "critical" },
+      { name: "args.valid", value: "n/a", confidence: 0.5, status: "trace" },
+      { name: "tool.result", value: "missing", confidence: 0.9, status: "critical" },
+    ],
+    failure: "tool_call_failure",
+    confidence: 0.8,
+    fix: "Constrain tool selection and validate arguments before answering.",
+  },
+  {
+    label: "Citation failure",
+    request: "Answer with citations.",
+    signals: [
+      { name: "citations.used", value: "[3]", confidence: 0.72, status: "critical" },
+      { name: "chunks.available", value: "1", confidence: 1.0, status: "trace" },
+      { name: "citation.range", value: "invalid", confidence: 0.92, status: "critical" },
+      { name: "claim.support", value: "partial", confidence: 0.55, status: "trace" },
+    ],
+    failure: "citation_failure",
+    confidence: 0.72,
+    fix: "Reject citations outside retrieved chunk IDs and retry the answer.",
+  },
+  {
+    label: "Ambiguous prompt",
+    request: "Can you do it?",
+    signals: [
+      { name: "prompt.words", value: "4", confidence: 0.75, status: "critical" },
+      { name: "reference", value: "it", confidence: 0.9, status: "critical" },
+      { name: "clarifying_q", value: "missing", confidence: 0.88, status: "critical" },
+      { name: "context", value: "none", confidence: 0.8, status: "critical" },
+    ],
+    failure: "ambiguous_prompt",
+    confidence: 0.62,
+    fix: "Ask one concise clarifying question before attempting a final answer.",
+  },
 ];
 
 const FAILURE_LABELS = {
   hallucination: "Hallucination",
   retrieval_failure: "Retrieval failure",
   prompt_brittleness: "Prompt brittleness",
+  schema_violation: "Schema violation",
+  tool_call_failure: "Tool call failure",
+  citation_failure: "Citation failure",
+  ambiguous_prompt: "Ambiguous prompt",
 };
 
 function DiagnosisDemo() {
@@ -213,7 +269,7 @@ function Hero() {
           <div className="hero__proof">
             <div className="hero__proof-item"><b>8</b> deterministic signals</div>
             <div className="hero__proof-sep" />
-            <div className="hero__proof-item"><b>5</b> failure detectors</div>
+            <div className="hero__proof-item"><b>9</b> failure detectors</div>
             <div className="hero__proof-sep" />
             <div className="hero__proof-item"><b>&lt;5ms</b> healthy-path overhead</div>
           </div>

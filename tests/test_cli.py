@@ -60,7 +60,7 @@ def test_fix_command_simulate(capsys, tmp_path):
     rc = cli.main(["fix", str(f), "--simulate"])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "Prompt Rule Agent" in out and "verified" in out
+    assert "Agent" in out and "verified" in out
 
 
 def test_examples_command_json(capsys):

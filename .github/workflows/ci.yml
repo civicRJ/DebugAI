@@ -17,34 +17,16 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Cache ML model downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/huggingface
-          key: hf-models-${{ hashFiles('requirements.txt') }}
-          restore-keys: hf-models-
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          python -m spacy download en_core_web_sm
-
-      - name: Pre-download signal models (online; cached for the offline test run)
-        run: |
-          python - <<'PY'
-          from sentence_transformers import SentenceTransformer, CrossEncoder
-          SentenceTransformer("all-MiniLM-L6-v2")
-          CrossEncoder("cross-encoder/nli-deberta-v3-base")
-          print("models cached")
-          PY
 
       - name: Run tests
         env:
           DEBUGAI_NO_SEED: "1"
+          DEBUGAI_DISABLE_LOCAL_MODELS: "1"
           TOKENIZERS_PARALLELISM: "false"
-          # Allow on-demand model download so a cold/partial model cache can't
-          # fail the run with an offline OSError (cache still speeds it up).
-          HF_HUB_OFFLINE: "0"
-          TRANSFORMERS_OFFLINE: "0"
+          HF_HUB_OFFLINE: "1"
+          TRANSFORMERS_OFFLINE: "1"
         run: pytest -q

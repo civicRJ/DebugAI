@@ -36,6 +36,7 @@ SPACY_MODEL = "en_core_web_sm"
 #                          Best choice for Render / Railway free tier.
 _LITE    = bool(os.environ.get("DEBUGAI_LITE"))
 _NLI_API = bool(os.environ.get("DEBUGAI_NLI_API"))
+_DISABLE_LOCAL_MODELS = bool(os.environ.get("DEBUGAI_DISABLE_LOCAL_MODELS"))
 NLI_MODEL = ("cross-encoder/nli-MiniLM2-L6-H768" if _LITE
              else "cross-encoder/nli-deberta-v3-base")
 NLI_HF_MODEL_ID = "cross-encoder/nli-deberta-v3-base"  # used by the API path
@@ -44,6 +45,8 @@ NLI_HF_MODEL_ID = "cross-encoder/nli-deberta-v3-base"  # used by the API path
 @functools.lru_cache(maxsize=1)
 def embedder():
     """SentenceTransformer for semantic cosine. None if unavailable."""
+    if _DISABLE_LOCAL_MODELS:
+        return None
     try:
         from sentence_transformers import SentenceTransformer
 
@@ -61,6 +64,8 @@ def nli_model():
     When DEBUGAI_NLI_API=1 this returns a special sentinel object that tells
     compute_contradiction() to call the HuggingFace Inference API instead.
     """
+    if _DISABLE_LOCAL_MODELS and not _NLI_API:
+        return None
     if _NLI_API:
         return _HFNLISentinel()
     try:
@@ -82,6 +87,8 @@ class _HFNLISentinel:
 @functools.lru_cache(maxsize=1)
 def ner():
     """spaCy NER pipeline. None if unavailable (regex fallback used instead)."""
+    if _DISABLE_LOCAL_MODELS:
+        return None
     try:
         import spacy
 

@@ -71,6 +71,17 @@ class SignalVector:
     entities_total: int = 0
     entities_missing: int = 0
 
+    # Auxiliary RAG/grounding diagnostics. These do not change the stable
+    # 8-card UI contract, but detectors can use them to pinpoint pipeline layer.
+    retrieval_top_score: float = 1.0
+    retrieval_margin: float = 1.0
+    retrieval_entropy: float = 0.0
+    query_drift: float = 0.0
+    chunk_redundancy: float = 0.0
+    claim_support: float = 1.0
+    claims_total: int = 0
+    claims_unsupported: int = 0
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -80,6 +91,15 @@ class SignalVector:
 # --------------------------------------------------------------------------- #
 def _tokens(text: str) -> set[str]:
     return {t.lower() for t in _WORD_RE.findall(text or "")}
+
+
+def _token_list(text: str) -> list[str]:
+    return [t.lower() for t in _WORD_RE.findall(text or "")]
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    union = a | b
+    return (len(a & b) / len(union)) if union else 1.0
 
 
 def _approx_token_count(text: str) -> int:
@@ -179,7 +199,7 @@ def compute_entity_coverage(output: str, context: str) -> tuple[float, int, int]
 # --------------------------------------------------------------------------- #
 def compute_similarity(rec: CaptureRecord) -> float:
     # Trust only finite numeric scores (a client may pass None/strings/NaN).
-    numeric = [float(s) for s in (rec.similarity_scores or []) if _finite(s)]
+    numeric = _numeric_similarity_scores(rec)
     if numeric:
         return round(sum(numeric) / len(numeric), 4)
     # No usable scores. If we have a query + chunks, compute the cosine ourselves.
@@ -195,6 +215,102 @@ def compute_similarity(rec: CaptureRecord) -> float:
         except Exception as e:
             log.warning("similarity recompute failed (%s); treating as healthy", e)
     return 1.0  # non-RAG request → retrieval not applicable, treat as healthy
+
+
+def _numeric_similarity_scores(rec: CaptureRecord) -> list[float]:
+    return [float(s) for s in (rec.similarity_scores or []) if _finite(s)]
+
+
+def compute_retrieval_quality(rec: CaptureRecord) -> tuple[float, float, float]:
+    """Return top score, top-2 margin, and normalized score entropy.
+
+    Mean similarity hides two common RAG failures:
+      * the top chunk barely beats alternatives (ambiguous retrieval), and
+      * the retriever is spread across unrelated chunks (high entropy).
+    """
+    scores = sorted(_numeric_similarity_scores(rec), reverse=True)
+    if not scores:
+        return 1.0, 1.0, 0.0
+    top = max(0.0, min(scores[0], 1.0))
+    margin = top if len(scores) == 1 else max(0.0, top - max(0.0, min(scores[1], 1.0)))
+
+    positive = [max(0.0, s) for s in scores]
+    total = sum(positive)
+    if len(positive) <= 1:
+        entropy = 0.0
+    elif total <= 0:
+        entropy = 1.0
+    else:
+        probs = [s / total for s in positive if s > 0]
+        raw = -sum(p * math.log(p) for p in probs)
+        entropy = raw / math.log(len(positive))
+    return round(top, 4), round(margin, 4), round(max(0.0, min(entropy, 1.0)), 4)
+
+
+def compute_query_drift(rec: CaptureRecord) -> float:
+    """How far a generated retrieval query moved away from the user request.
+
+    0.0 is aligned. 1.0 means the rewrite shares no meaningful tokens.
+    """
+    if not rec.retrieval_query or not rec.retrieved_chunks:
+        return 0.0
+    prompt_tokens = _tokens(rec.user_prompt)
+    query_tokens = _tokens(rec.retrieval_query)
+    if not prompt_tokens or not query_tokens:
+        return 0.0
+    return round(1.0 - _jaccard(prompt_tokens, query_tokens), 4)
+
+
+def compute_chunk_redundancy(chunks: list[str]) -> float:
+    """Mean pairwise token overlap across retrieved chunks.
+
+    High values mean the retriever filled context with near-duplicates instead
+    of covering independent evidence.
+    """
+    toks: list[set[str]] = []
+    for chunk in chunks or []:
+        chunk_tokens = _tokens(chunk)
+        if chunk_tokens:
+            toks.append(chunk_tokens)
+    if len(toks) < 2:
+        return 0.0
+    pairs, total = 0, 0.0
+    for i in range(len(toks)):
+        for j in range(i + 1, len(toks)):
+            total += _jaccard(toks[i], toks[j])
+            pairs += 1
+    return round(total / pairs, 4)
+
+
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n+")
+
+
+def compute_claim_support(output: str, context: str) -> tuple[float, int, int]:
+    """Approximate claim-level support without an LLM judge.
+
+    This is intentionally conservative: it only flags sentence-like claims that
+    have little lexical support in the retrieved context.
+    """
+    ctx_tokens = _tokens(context)
+    if not ctx_tokens:
+        return 1.0, 0, 0
+
+    claims: list[set[str]] = []
+    for sent in _SENTENCE_RE.split(output or ""):
+        sent = sent.strip()
+        if len(sent) < 16 or sent.endswith("?"):
+            continue
+        toks = set(_token_list(sent))
+        if len(toks) >= 4:
+            claims.append(toks)
+
+    if not claims:
+        return 1.0, 0, 0
+
+    supported = sum(1 for claim in claims if _jaccard(claim, ctx_tokens) >= 0.18)
+    total = len(claims)
+    unsupported = total - supported
+    return round(supported / total, 4), total, unsupported
 
 
 # --------------------------------------------------------------------------- #
@@ -355,6 +471,12 @@ def compute_signals(rec: CaptureRecord, lazy: bool = False) -> SignalVector:
     token_ratio = compute_token_ratio(rec)
     context_ratio = compute_context_ratio(rec)
     variance, var_method = estimate_variance(rec)
+    retrieval_top, retrieval_margin, retrieval_entropy = compute_retrieval_quality(rec)
+    query_drift = compute_query_drift(rec)
+    chunk_redundancy = compute_chunk_redundancy(rec.retrieved_chunks)
+    claim_support, claims_total, claims_unsupported = compute_claim_support(
+        rec.llm_output, rec.context_text
+    )
 
     cheap_healthy = (
         similarity >= 0.50
@@ -375,6 +497,14 @@ def compute_signals(rec: CaptureRecord, lazy: bool = False) -> SignalVector:
             context_ratio=context_ratio,
             overlap_method="skipped-lazy",
             variance_method=var_method,
+            retrieval_top_score=retrieval_top,
+            retrieval_margin=retrieval_margin,
+            retrieval_entropy=retrieval_entropy,
+            query_drift=query_drift,
+            chunk_redundancy=chunk_redundancy,
+            claim_support=claim_support,
+            claims_total=claims_total,
+            claims_unsupported=claims_unsupported,
         )
 
     overlap, overlap_method = compute_overlap(rec.llm_output, rec.context_text)
@@ -396,4 +526,12 @@ def compute_signals(rec: CaptureRecord, lazy: bool = False) -> SignalVector:
         variance_method=var_method,
         entities_total=ent_total,
         entities_missing=ent_missing,
+        retrieval_top_score=retrieval_top,
+        retrieval_margin=retrieval_margin,
+        retrieval_entropy=retrieval_entropy,
+        query_drift=query_drift,
+        chunk_redundancy=chunk_redundancy,
+        claim_support=claim_support,
+        claims_total=claims_total,
+        claims_unsupported=claims_unsupported,
     )

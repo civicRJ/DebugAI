@@ -9,6 +9,8 @@ from debugai.signals import (
     SignalVector,
     compute_entity_coverage,
     compute_overlap,
+    compute_query_drift,
+    compute_retrieval_quality,
     compute_signals,
     compute_token_ratio,
     estimate_variance,
@@ -71,15 +73,36 @@ def test_token_ratio_uses_usage_then_cap():
     assert compute_token_ratio(_rec()) == 0.0  # no cap → cannot flag
 
 
+def test_retrieval_quality_captures_margin_and_entropy():
+    top, margin, entropy = compute_retrieval_quality(
+        _rec(similarity_scores=[0.82, 0.81, 0.80])
+    )
+    assert top == pytest.approx(0.82)
+    assert margin == pytest.approx(0.01)
+    assert entropy > 0.99
+
+
+def test_query_drift_detects_bad_retrieval_rewrite():
+    drift = compute_query_drift(_rec(
+        user_prompt="What is the refund policy for annual plans?",
+        retrieval_query="enterprise security SOC2 audit retention",
+        retrieved_chunks=["Annual plans can be refunded within 30 days."],
+    ))
+    assert drift > 0.8
+
+
 def test_compute_signals_returns_full_vector_no_nan():
     s = compute_signals(_rec(
         user_prompt="What is the refund policy?",
         llm_output="Refunds within 30 days.",
         retrieved_chunks=["Refunds are issued within 30 days with a receipt."],
-        similarity_scores=[0.88],
+        similarity_scores=[0.88, 0.74],
         temperature=0.2,
     ))
     assert isinstance(s, SignalVector)
+    assert s.retrieval_top_score == pytest.approx(0.88)
+    assert s.retrieval_margin == pytest.approx(0.14)
+    assert s.claim_support == pytest.approx(1.0)
     for name, val in s.to_dict().items():
         if isinstance(val, float):
             assert not math.isnan(val), name

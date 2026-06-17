@@ -28,6 +28,7 @@ class Diagnosis:
                 return None
             return {
                 "failure": r.failure,
+                "layer": r.layer,
                 "confidence": r.confidence,
                 "severity": r.severity,
                 "root_cause": r.root_cause,

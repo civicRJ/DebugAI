@@ -53,6 +53,7 @@ def test_each_case_classified(case):
 def test_scenario_a_reproduces_doc():
     r = _run(next(c for c in DATASET if c["id"] == "rag-01-refund"))
     assert r["primary"]["failure"] == "retrieval_failure"
+    assert r["primary"]["layer"] == "retrieval"
     assert r["primary"]["confidence"] == 0.95
 
 

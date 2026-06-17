@@ -26,6 +26,11 @@ TITLES = {
     "context_overflow": "Context overflow",
     "schema_violation": "Schema violation",
     "tool_call_failure": "Tool call failure",
+    "tool_result_ignored": "Tool result ignored",
+    "prompt_injection": "Prompt injection",
+    "sensitive_data_leak": "Sensitive data leak",
+    "query_drift": "Query drift",
+    "retrieval_ambiguity": "Retrieval ambiguity",
     "retrieval_failure": "Retrieval failure",
     "citation_failure": "Citation failure",
     "entity_gap": "Entity gap",
@@ -96,6 +101,7 @@ def to_card(diag: dict) -> dict:
     return {
         "severity": _SEV.get(p["severity"], "warn"),
         "id": p["failure"],
+        "layer": p.get("layer"),
         "title": TITLES.get(p["failure"], p["failure"]),
         "confidence": p["confidence"],
         "signals": signal_props,
@@ -103,7 +109,8 @@ def to_card(diag: dict) -> dict:
         "explanation": _plain(diag.get("explanation", p.get("root_cause", ""))),
         "secondary": [
             {"id": s["failure"], "title": TITLES.get(s["failure"], s["failure"]),
-             "confidence": s["confidence"], "severity": _SEV.get(s["severity"], "warn")}
+             "layer": s.get("layer"), "confidence": s["confidence"],
+             "severity": _SEV.get(s["severity"], "warn")}
             for s in diag.get("secondary", [])
         ],
     }

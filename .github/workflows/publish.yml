@@ -22,6 +22,7 @@ jobs:
       - name: Build the distribution
         run: |
           pip install build
+          rm -rf dist build debugerai.egg-info
           python -m build
           ls dist/
 

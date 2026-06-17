@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-from debugai import analyze, audit_prompt
+from debugai import analyze, analyze_pipeline, audit_prompt, evaluate_corpus_file
 from debugai.agents import propose_fix
 from debugai.examples import example_cases, get_example, list_examples
 from debugai.report import (
@@ -202,6 +202,45 @@ def cmd_audit_prompt(args) -> int:
     return 0
 
 
+def cmd_eval(args) -> int:
+    result = evaluate_corpus_file(args.file, explain_with_llm=args.explain)
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    print(_c(f"accuracy {result['accuracy']:.1%}", "green" if result["accuracy"] >= args.min_accuracy else "red") +
+          f"  {result['correct']}/{result['total']}")
+    if result["misses"]:
+        print(_c("misses:", "yellow"))
+        for miss in result["misses"][:20]:
+            print(f"- {miss['id']}: expected {miss['expected']}, got {miss['got']}")
+    return 0 if result["accuracy"] >= args.min_accuracy else 1
+
+
+def cmd_pipeline(args) -> int:
+    path = Path(args.file)
+    data = json.loads(path.read_text()) if path.exists() else _json_arg(args.file)
+    if isinstance(data, dict):
+        stages = data.get("stages") or []
+        result = analyze_pipeline(
+            stages,
+            system_prompt=data.get("system_prompt", ""),
+            user_prompt=data.get("prompt") or data.get("user_prompt", ""),
+            output_schema=data.get("output_schema"),
+        )
+    else:
+        result = analyze_pipeline(data or [])
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    if result["healthy"]:
+        print(_c("pipeline healthy", "green"))
+        return 0
+    p = result["primary"]
+    print(_c(f"{p['stage_id']} → {p['failure']}", "red") + f"  conf {p['confidence']}")
+    print("  " + p["root_cause"])
+    return 1
+
+
 def cmd_serve(args) -> int:
     import uvicorn
     uvicorn.run("server.app:app", host=args.host, port=args.port, reload=args.reload)
@@ -260,6 +299,18 @@ def main(argv=None) -> int:
     ap.add_argument("--llm", action="store_true", help="use the LLM auditor when OPENAI_API_KEY is set")
     ap.add_argument("--json", action="store_true")
     ap.set_defaults(func=cmd_audit_prompt)
+
+    ev = sub.add_parser("eval", help="evaluate a labeled failure corpus")
+    ev.add_argument("file")
+    ev.add_argument("--min-accuracy", type=float, default=0.8)
+    ev.add_argument("--explain", action="store_true")
+    ev.add_argument("--json", action="store_true")
+    ev.set_defaults(func=cmd_eval)
+
+    pl = sub.add_parser("pipeline", help="diagnose a staged pipeline trace JSON file")
+    pl.add_argument("file", help="JSON file or @path containing {'stages': [...]}")
+    pl.add_argument("--json", action="store_true")
+    pl.set_defaults(func=cmd_pipeline)
 
     sv = sub.add_parser("serve", help="launch the web app")
     sv.add_argument("--host", default="127.0.0.1")

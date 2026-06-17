@@ -139,6 +139,8 @@ debugai report --example tool_call_failure
 debugai examples                       # list built-in debugger cases
 debugai fix cases.json --simulate      # diagnose + propose & verify a fix
 debugai audit-prompt --system @prompt.txt --use-case "support RAG bot" --tool refund_order --dynamic
+debugai eval failures.json             # score a labeled failure corpus
+debugai pipeline trace.json --json     # find the failing stage in a pipeline trace
 debugai serve --port 8000              # launch the web app
 ```
 
@@ -200,6 +202,23 @@ signals.
   "explanation": "human-readable text"
 }
 ```
+
+Pipeline and corpus APIs:
+
+```python
+from debugai import analyze_pipeline, evaluate_corpus_file
+
+pipeline = analyze_pipeline([
+    {"id": "rewrite", "kind": "query_rewrite", "input": user_prompt, "output": retrieval_query},
+    {"id": "retrieval", "kind": "retrieval", "input": retrieval_query, "chunks": chunks, "similarity_scores": scores},
+    {"id": "generation", "kind": "generation", "output": llm_output, "chunks": chunks, "similarity_scores": scores},
+], system_prompt=system_prompt, user_prompt=user_prompt)
+
+eval_result = evaluate_corpus_file("failures.json")
+```
+
+`debug_report()` also returns a `regression_artifact` containing a portable
+test skeleton that teams can save in CI after applying a fix.
 
 ## Level 2 — one-line SDK wrapper
 

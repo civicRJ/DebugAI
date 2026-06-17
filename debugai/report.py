@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from debugai.agents import propose_fix
 from debugai.analyze import analyze
+from debugai.fix_artifact import regression_artifact
 from debugai.schema import CaptureRecord
 
 Rerun = Callable[[str, str, list, "float | None"], str]
@@ -145,6 +146,7 @@ def debug_report(
         "fix": None if diagnosis.get("healthy") else primary.get("fix"),
         "diagnosis": diagnosis,
         "fix_report": fix_report,
+        "regression_artifact": regression_artifact(diagnosis, record, fix_report),
     }
 
 

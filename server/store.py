@@ -21,6 +21,7 @@ from server.paths import data_path
 _DATA = data_path("diagnoses.json")
 _TRACES = data_path("traces.json")
 _LEADS = data_path("leads.json")
+_FEEDBACK = data_path("feedback.json")
 _MAX = 500
 
 
@@ -251,6 +252,77 @@ class _JsonLeadStore:
             "by_role": dict(Counter(i.get("role") or "unknown" for i in items)),
             "recent": list(reversed(items))[:10],
         }
+
+    def clear(self) -> None:
+        with self._lock:
+            self._items = []
+            self._persist()
+
+
+class _JsonFeedbackStore:
+    def __init__(self, path: Path = _FEEDBACK, maxlen: int = 5_000):
+        self._path = path
+        self._max = maxlen
+        self._lock = threading.Lock()
+        self._items: list[dict] = self._load()
+
+    def _load(self) -> list[dict]:
+        try:
+            data = json.loads(self._path.read_text())
+            return data[-self._max:] if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def _persist(self) -> None:
+        _atomic_write(self._path, json.dumps(self._items[-self._max:], indent=2))
+
+    def add(self, item: dict) -> dict:
+        record = {**item, "created_at": item.get("created_at") or time.time()}
+        with self._lock:
+            self._items.append(record)
+            del self._items[:-self._max]
+            self._persist()
+        return record
+
+    def list(self, owner: str | None = None, limit: int = 500) -> list[dict]:
+        with self._lock:
+            items = list(reversed(self._items))
+        if owner is not None:
+            items = [i for i in items if i.get("owner") == owner]
+        return items[:limit]
+
+    def stats(self, owner: str | None = None) -> dict:
+        items = self.list(owner=owner, limit=self._max)
+        by_failure: dict[str, Counter] = {}
+        for item in items:
+            failure = item.get("failure") or "unknown"
+            c = by_failure.setdefault(failure, Counter())
+            c["total"] += 1
+            c["accepted"] += 1 if item.get("accepted") else 0
+            c["rejected"] += 0 if item.get("accepted") else 1
+            if item.get("fix_worked") is True:
+                c["fix_worked"] += 1
+            elif item.get("fix_worked") is False:
+                c["fix_failed"] += 1
+        return {
+            "total": len(items),
+            "by_failure": {
+                failure: {
+                    **dict(c),
+                    "accept_rate": round(c["accepted"] / (c["total"] or 1), 4),
+                    "fix_success_rate": (
+                        round(c["fix_worked"] / (c["fix_worked"] + c["fix_failed"]), 4)
+                        if c["fix_worked"] + c["fix_failed"] else None
+                    ),
+                }
+                for failure, c in by_failure.items()
+            },
+        }
+
+    def purge(self, owner: str) -> None:
+        with self._lock:
+            self._items = [i for i in self._items if i.get("owner") != owner]
+            self._persist()
 
     def clear(self) -> None:
         with self._lock:
@@ -611,3 +683,7 @@ def LeadStore() -> "_JsonLeadStore | _PgLeadStore":
     if DATABASE_URL:
         return _PgLeadStore()
     return _JsonLeadStore()
+
+
+def FeedbackStore() -> _JsonFeedbackStore:
+    return _JsonFeedbackStore()

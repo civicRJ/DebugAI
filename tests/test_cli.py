@@ -71,6 +71,34 @@ def test_examples_command_json(capsys):
     assert "tool_call_failure" in ids
 
 
+def test_eval_command_json(capsys, tmp_path):
+    case = {"cases": [{
+        "id": "rf",
+        "prompt": "refund?",
+        "output": "90-day refund",
+        "chunks": ["parking only"],
+        "similarity_scores": [0.2],
+        "expected_failure": "retrieval_failure",
+    }]}
+    f = tmp_path / "corpus.json"
+    f.write_text(json.dumps(case))
+    rc = cli.main(["eval", str(f), "--json"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["accuracy"] == 1.0
+
+
+def test_pipeline_command_json(capsys, tmp_path):
+    trace = {"prompt": "refund?", "stages": [{
+        "id": "ret", "kind": "retrieval", "input": "refund?",
+        "chunks": ["parking only"], "similarity_scores": [0.2],
+    }]}
+    f = tmp_path / "trace.json"
+    f.write_text(json.dumps(trace))
+    rc = cli.main(["pipeline", str(f), "--json"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["primary"]["failure"] == "retrieval_failure"
+
+
 def test_report_command_example(capsys):
     rc = cli.main(["report", "--example", "citation_failure", "--json"])
     assert rc == 0

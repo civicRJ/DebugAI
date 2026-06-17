@@ -7,7 +7,10 @@ os.environ["DEBUGAI_NO_SEED"] = "1"  # don't auto-seed (model load) during tests
 import pytest
 from fastapi.testclient import TestClient
 
-from server.app import AnalyzeRequest, SESSION_COOKIE, app, auth_store, lead_store, store, trace_store
+from server.app import (
+    AnalyzeRequest, SESSION_COOKIE, app, auth_store, feedback_store, lead_store,
+    store, trace_store,
+)
 
 
 @pytest.fixture()
@@ -15,6 +18,7 @@ def client(tmp_path):
     store.clear()
     trace_store.clear()
     lead_store.clear()
+    feedback_store.clear()
     auth_store.clear()
     c = TestClient(app)
     with c:
@@ -26,6 +30,7 @@ def client(tmp_path):
     store.clear()
     trace_store.clear()
     lead_store.clear()
+    feedback_store.clear()
     auth_store.clear()
 
 
@@ -287,6 +292,53 @@ def test_prompt_audit_endpoint_scans_prompt_without_server_env_key(client, monke
     assert "missing_untrusted_context_boundary" in ids
     assert "missing_tool_policy" in ids
     assert body["attack_cases"]
+
+
+def test_pipeline_feedback_and_beta_workflow_endpoints(client):
+    analyzed = client.post("/api/analyze", json={
+        "prompt": "What is the refund policy?",
+        "output": "Full cash refund within 90 days.",
+        "chunks": ["Store hours are 9 to 5."],
+        "similarity_scores": [0.2],
+    }).json()
+
+    feedback = client.post("/api/feedback", json={
+        "diagnosis_id": analyzed["id"],
+        "accepted": True,
+        "fix_worked": False,
+    })
+    assert feedback.status_code == 200
+    assert client.get("/api/confidence").json()["by_failure"]["retrieval_failure"]["accepted"] == 1
+
+    pipeline = client.post("/api/pipeline/analyze", json={
+        "prompt": "refund policy",
+        "stages": [{
+            "id": "ret",
+            "kind": "retrieval",
+            "input": "refund policy",
+            "chunks": ["parking only"],
+            "similarity_scores": [0.2],
+        }],
+    })
+    assert pipeline.status_code == 200
+    assert pipeline.json()["primary"]["failure"] == "retrieval_failure"
+
+    workflow = client.post("/api/beta/debug-workflow", json={
+        "system_prompt": "You are a helpful support agent. Always answer.",
+        "prompt": "What is the refund policy?",
+        "output": "Full cash refund within 90 days.",
+        "chunks": ["Store hours are 9 to 5."],
+        "similarity_scores": [0.2],
+        "use_case": "Customer support RAG bot",
+        "retrieves_external_content": True,
+        "run_fix": True,
+        "simulate": True,
+    })
+    assert workflow.status_code == 200
+    body = workflow.json()
+    assert body["record"]["diagnosis"]["healthy"] is False
+    assert body["prompt_audit"]["issues"]
+    assert body["debug_report"]["regression_artifact"]["expected_after"]["healthy"] is True
 
 
 def test_analyze_creates_linked_trace(client):

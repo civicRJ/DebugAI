@@ -33,10 +33,11 @@ MAX_TEXT = 20_000
 MAX_CHUNKS = 200
 MAX_CHUNK_LEN = 10_000
 
-from debugai import analyze, audit_prompt
+from debugai import analyze, analyze_pipeline, audit_prompt
 from debugai.agents import propose_fix
 from debugai.calibration import ThresholdStore
 from debugai.examples import example_cases
+from debugai.report import debug_report
 from debugai.schema import CaptureRecord
 from debugai.tracing import Span, Trace, scores_from_diagnosis, status_from_diagnosis
 from server.auth import AuthError, AuthStore
@@ -44,7 +45,7 @@ from server.db import status as db_status
 from server.email import send_email_verification, send_password_reset, send_welcome
 from server.paths import data_path
 from server.security import install as install_security
-from server.store import DiagnosisStore, LeadStore, TraceStore
+from server.store import DiagnosisStore, FeedbackStore, LeadStore, TraceStore
 from server.ui_adapter import to_card
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -56,6 +57,7 @@ SESSION_COOKIE = "debugai_session"
 store = DiagnosisStore()
 trace_store = TraceStore()
 lead_store = LeadStore()
+feedback_store = FeedbackStore()
 auth_store = AuthStore()
 
 # Per-user adaptive calibration: one ThresholdStore per account (§7.2).
@@ -439,6 +441,7 @@ def api_token_revoke(token_id: str, user: dict = Depends(require_user)):
 def api_account_delete(request: Request, response: Response, user: dict = Depends(require_user)):
     store.purge(user["id"])
     trace_store.purge(user["id"])
+    feedback_store.purge(user["id"])
     with _tstores_lock:
         _tstores.pop(user["id"], None)
     auth_store.delete_user(user["id"])
@@ -493,6 +496,20 @@ class PromptAuditRequest(BaseModel):
     dynamic: bool = True
     llm: bool = False
     model: str | None = Field(default=None, max_length=200)
+
+
+class PipelineAnalyzeRequest(BaseModel):
+    system_prompt: str = Field(default="", max_length=MAX_TEXT)
+    prompt: str = Field(default="", max_length=MAX_TEXT)
+    output_schema: dict | None = None
+    stages: list[dict] = Field(default_factory=list, max_length=100)
+
+
+class FeedbackIn(BaseModel):
+    diagnosis_id: str = Field(max_length=80)
+    accepted: bool
+    fix_worked: bool | None = None
+    note: str = Field(default="", max_length=1000)
 
 
 def _record(req_dict: dict, diagnosis: dict, owner: str) -> dict:
@@ -636,6 +653,44 @@ def api_prompt_audit(req: PromptAuditRequest, user: dict = Depends(require_user)
     except Exception:
         log.exception("prompt audit failed")
         raise HTTPException(status_code=400, detail="prompt audit failed")
+
+
+@app.post("/api/pipeline/analyze")
+def api_pipeline_analyze(req: PipelineAnalyzeRequest, user: dict = Depends(require_user)):
+    try:
+        return analyze_pipeline(
+            req.stages,
+            system_prompt=req.system_prompt,
+            user_prompt=req.prompt,
+            output_schema=req.output_schema,
+        )
+    except Exception:
+        log.exception("pipeline analyze failed")
+        raise HTTPException(status_code=400, detail="pipeline analysis failed")
+
+
+@app.post("/api/feedback")
+def api_feedback(body: FeedbackIn, user: dict = Depends(require_user)):
+    owner = _effective_owner(user["id"])
+    rec = store.get(body.diagnosis_id, owner=owner)
+    if rec is None:
+        raise HTTPException(status_code=404, detail="diagnosis not found")
+    primary = (rec.get("diagnosis") or {}).get("primary") or {}
+    event = feedback_store.add({
+        "owner": owner,
+        "diagnosis_id": body.diagnosis_id,
+        "failure": primary.get("failure") or "healthy",
+        "confidence": primary.get("confidence"),
+        "accepted": body.accepted,
+        "fix_worked": body.fix_worked,
+        "note": body.note,
+    })
+    return {"ok": True, "feedback": event, "confidence": feedback_store.stats(owner=owner)}
+
+
+@app.get("/api/confidence")
+def api_confidence(user: dict = Depends(require_user)):
+    return feedback_store.stats(owner=_effective_owner(user["id"]))
 
 
 @app.get("/api/diagnoses")
@@ -848,6 +903,15 @@ class DebugRequest(AnalyzeRequest):
     simulate: bool = True
 
 
+class BetaDebugWorkflowRequest(DebugRequest):
+    use_case: str = Field(default="", max_length=MAX_TEXT)
+    audit_tools: list[str] | None = Field(default=None, max_length=100)
+    high_risk_actions: list[str] | None = Field(default=None, max_length=100)
+    retrieves_external_content: bool = False
+    handles_secrets: bool = False
+    stages: list[dict] | None = Field(default=None, max_length=100)
+
+
 @app.post("/api/debug")
 def api_debug(req: DebugRequest, user: dict = Depends(require_user)):
     """One shot: paste a failing case (+ describe the issue) → diagnose → propose
@@ -863,6 +927,73 @@ def api_debug(req: DebugRequest, user: dict = Depends(require_user)):
     if req.run_fix and not rec["diagnosis"].get("healthy"):
         fix = _run_fix(rec["diagnosis"], _capture_from_input(rec["input"]), req.simulate, user["id"])
     return {"record": rec, "fix": fix}
+
+
+@app.post("/api/beta/debug-workflow")
+def api_beta_debug_workflow(req: BetaDebugWorkflowRequest, user: dict = Depends(require_user)):
+    """Beta workflow: diagnose a failing case, propose/verify a fix, audit the
+    prompt, analyze pipeline stages when supplied, and return a regression
+    artifact the team can save in CI."""
+    if req.session_id is None:
+        req.session_id = "beta-debug-workflow"
+    try:
+        rec = _run(req, _effective_owner(user["id"]), judge=True)
+    except Exception:
+        log.exception("beta debug workflow failed")
+        raise HTTPException(status_code=400, detail="diagnosis failed")
+
+    fix = None
+    if req.run_fix and not rec["diagnosis"].get("healthy"):
+        fix = _run_fix(rec["diagnosis"], _capture_from_input(rec["input"]), req.simulate, user["id"])
+
+    report = debug_report(
+        prompt=req.prompt,
+        output=req.output,
+        system_prompt=req.system_prompt,
+        chunks=req.chunks,
+        similarity_scores=req.similarity_scores,
+        retrieval_query=req.retrieval_query,
+        temperature=req.temperature,
+        context_window=req.context_window,
+        tool_calls=req.tool_calls,
+        tools_expected=req.tools_expected,
+        response_schema=req.response_schema,
+        run_fix=False,
+        explain_with_llm=False,
+    )
+    report["fix_report"] = fix
+
+    prompt_audit = audit_prompt(
+        system_prompt=req.system_prompt,
+        use_case=req.use_case,
+        tools=req.audit_tools or req.tools_expected or [],
+        retrieves_external_content=req.retrieves_external_content or bool(req.chunks),
+        handles_secrets=req.handles_secrets,
+        output_schema=req.response_schema,
+        high_risk_actions=req.high_risk_actions or [],
+        dynamic=True,
+        llm=False,
+        api_key="",
+    )
+    pipeline = analyze_pipeline(
+        req.stages or [],
+        system_prompt=req.system_prompt,
+        user_prompt=req.prompt,
+        output_schema=req.response_schema,
+    )
+    return {
+        "record": rec,
+        "fix": fix,
+        "debug_report": report,
+        "prompt_audit": prompt_audit,
+        "pipeline": pipeline,
+        "next_actions": [
+            "Apply the highest-confidence fix.",
+            "Save the regression artifact in CI.",
+            "Add this case to the failure corpus.",
+            "Rerun dynamic prompt attacks before deploy.",
+        ],
+    }
 
 
 @app.post("/api/playground")

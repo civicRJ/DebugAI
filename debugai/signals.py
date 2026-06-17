@@ -48,6 +48,20 @@ _CONSTRAINT_RE = re.compile(
     r"bullet|numbered|step[- ]by[- ]step|schema|template)\b",
     re.IGNORECASE,
 )
+_STOPWORDS: frozenset[str] = frozenset([
+    "the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "for",
+    "with", "is", "are", "was", "were", "be", "what", "which", "who", "how",
+    "when", "where", "why", "can", "could", "should", "would", "do", "does",
+])
+_CURRENT_RE = re.compile(r"\b(latest|current|today|now|recent|new|this week|this month|202[5-9])\b", re.IGNORECASE)
+_DATE_RE = re.compile(r"\b(20\d{2}|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|today|yesterday)\b", re.IGNORECASE)
+_CONFLICT_RE = re.compile(
+    r"\b(can|allowed|eligible|available|required|must)\b.*\b(cannot|not allowed|ineligible|unavailable|optional|must not)\b"
+    r"|\b(cannot|not allowed|ineligible|unavailable|must not)\b.*\b(can|allowed|eligible|available|required|must)\b",
+    re.IGNORECASE | re.DOTALL,
+)
+_DAYS_RE = re.compile(r"\b(\d{1,3})\s+days?\b", re.IGNORECASE)
+_REFUSAL_RE = re.compile(r"\b(i can't|i cannot|cannot answer|can't answer|not enough information|do not have enough|outside scope|unable to)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -82,6 +96,14 @@ class SignalVector:
     claims_total: int = 0
     claims_unsupported: int = 0
 
+    retrieval_coverage: float = 1.0
+    context_dilution: float = 0.0
+    source_conflict: float = 0.0
+    freshness_gap: float = 0.0
+    tool_argument_risk: float = 0.0
+    instruction_conflict_score: float = 0.0
+    refusal_signal: float = 0.0
+
     def to_dict(self) -> dict:
         return asdict(self)
 
@@ -95,6 +117,10 @@ def _tokens(text: str) -> set[str]:
 
 def _token_list(text: str) -> list[str]:
     return [t.lower() for t in _WORD_RE.findall(text or "")]
+
+
+def _content_tokens(text: str) -> set[str]:
+    return {t for t in _tokens(text) if t not in _STOPWORDS and len(t) > 2}
 
 
 def _jaccard(a: set[str], b: set[str]) -> float:
@@ -313,6 +339,94 @@ def compute_claim_support(output: str, context: str) -> tuple[float, int, int]:
     return round(supported / total, 4), total, unsupported
 
 
+def compute_retrieval_coverage(rec: CaptureRecord) -> float:
+    if not rec.retrieved_chunks:
+        return 1.0
+    query = _content_tokens(rec.user_prompt)
+    if not query:
+        return 1.0
+    context = _content_tokens(rec.context_text)
+    return round(len(query & context) / len(query), 4)
+
+
+def compute_context_dilution(rec: CaptureRecord) -> float:
+    chunks = rec.retrieved_chunks or []
+    if not chunks:
+        return 0.0
+    query = _content_tokens(rec.retrieval_query or rec.user_prompt)
+    if not query:
+        return 0.0
+    weak = 0
+    for chunk in chunks:
+        overlap = _jaccard(query, _content_tokens(chunk))
+        if overlap < 0.08:
+            weak += 1
+    return round(weak / len(chunks), 4)
+
+
+def compute_source_conflict(chunks: list[str]) -> float:
+    text = "\n".join(chunks or [])
+    if not text.strip():
+        return 0.0
+    score = 0.0
+    if _CONFLICT_RE.search(text):
+        score += 0.6
+    days = {int(m.group(1)) for m in _DAYS_RE.finditer(text)}
+    if len(days) >= 2:
+        score += 0.4
+    return round(min(score, 1.0), 4)
+
+
+def compute_freshness_gap(rec: CaptureRecord) -> float:
+    prompt_needs_current = bool(_CURRENT_RE.search(rec.user_prompt or ""))
+    if not prompt_needs_current:
+        return 0.0
+    source_blob = "\n".join([
+        rec.context_text,
+        " ".join(str(src.get("date") or src.get("updated_at") or src.get("timestamp") or "")
+                 for src in (rec.chunk_sources or []) if isinstance(src, dict)),
+    ])
+    return 0.0 if _DATE_RE.search(source_blob) else 1.0
+
+
+def compute_tool_argument_risk(rec: CaptureRecord) -> float:
+    calls = rec.tool_calls or []
+    if not calls:
+        return 0.0
+    risk = 0.0
+    for call in calls:
+        raw = call.get("input")
+        if isinstance(raw, str) and raw.strip():
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                risk += 0.45
+                parsed = {}
+        elif isinstance(raw, dict):
+            parsed = raw
+        else:
+            parsed = {}
+        blob = json.dumps(parsed).lower() if parsed else str(raw or "").lower()
+        if re.search(r"\b(all|any|\*|delete|drop|refund|send|email|transfer|admin)\b", blob):
+            risk += 0.25
+        if call.get("error") or str(call.get("status", "")).lower() in {"error", "failed"}:
+            risk += 0.25
+    return round(min(risk, 1.0), 4)
+
+
+def compute_instruction_conflict_score(system_prompt: str) -> float:
+    text = system_prompt or ""
+    low = text.lower()
+    score = 0.0
+    if re.search(r"\b(always answer|answer every|never refuse)\b", low) and _REFUSAL_RE.search(low):
+        score += 0.5
+    if "only from" in low and re.search(r"\b(use your knowledge|answer from memory|be creative)\b", low):
+        score += 0.4
+    if re.search(r"\buse any tool|do anything|full autonomy\b", low) and re.search(r"\bapproval|confirm|permission\b", low):
+        score += 0.3
+    return round(min(score, 1.0), 4)
+
+
 # --------------------------------------------------------------------------- #
 # Signal 4 — Contradiction (cross-encoder NLI)
 # --------------------------------------------------------------------------- #
@@ -477,6 +591,13 @@ def compute_signals(rec: CaptureRecord, lazy: bool = False) -> SignalVector:
     claim_support, claims_total, claims_unsupported = compute_claim_support(
         rec.llm_output, rec.context_text
     )
+    retrieval_coverage = compute_retrieval_coverage(rec)
+    context_dilution = compute_context_dilution(rec)
+    source_conflict = compute_source_conflict(rec.retrieved_chunks)
+    freshness_gap = compute_freshness_gap(rec)
+    tool_argument_risk = compute_tool_argument_risk(rec)
+    instruction_conflict_score = compute_instruction_conflict_score(rec.system_prompt)
+    refusal_signal = 1.0 if _REFUSAL_RE.search(rec.llm_output or "") else 0.0
 
     cheap_healthy = (
         similarity >= 0.50
@@ -505,6 +626,13 @@ def compute_signals(rec: CaptureRecord, lazy: bool = False) -> SignalVector:
             claim_support=claim_support,
             claims_total=claims_total,
             claims_unsupported=claims_unsupported,
+            retrieval_coverage=retrieval_coverage,
+            context_dilution=context_dilution,
+            source_conflict=source_conflict,
+            freshness_gap=freshness_gap,
+            tool_argument_risk=tool_argument_risk,
+            instruction_conflict_score=instruction_conflict_score,
+            refusal_signal=refusal_signal,
         )
 
     overlap, overlap_method = compute_overlap(rec.llm_output, rec.context_text)
@@ -534,4 +662,11 @@ def compute_signals(rec: CaptureRecord, lazy: bool = False) -> SignalVector:
         claim_support=claim_support,
         claims_total=claims_total,
         claims_unsupported=claims_unsupported,
+        retrieval_coverage=retrieval_coverage,
+        context_dilution=context_dilution,
+        source_conflict=source_conflict,
+        freshness_gap=freshness_gap,
+        tool_argument_risk=tool_argument_risk,
+        instruction_conflict_score=instruction_conflict_score,
+        refusal_signal=refusal_signal,
     )

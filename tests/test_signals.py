@@ -12,6 +12,11 @@ from debugai.signals import (
     compute_query_drift,
     compute_retrieval_quality,
     compute_signals,
+    compute_context_dilution,
+    compute_freshness_gap,
+    compute_retrieval_coverage,
+    compute_source_conflict,
+    compute_tool_argument_risk,
     compute_token_ratio,
     estimate_variance,
 )
@@ -91,6 +96,24 @@ def test_query_drift_detects_bad_retrieval_rewrite():
     assert drift > 0.8
 
 
+def test_expanded_debugging_signals_cover_pipeline_risks():
+    rec = _rec(
+        user_prompt="What is the latest refund policy for annual plans?",
+        retrieved_chunks=[
+            "Parking is behind the building.",
+            "Refunds are allowed within 30 days.",
+            "Refunds are not allowed after purchase.",
+        ],
+        similarity_scores=[0.7, 0.6, 0.5],
+        tool_calls=[{"name": "refund_order", "input": '{"order_id":"*","action":"refund all"}'}],
+    )
+    assert compute_retrieval_coverage(rec) < 0.6
+    assert compute_context_dilution(rec) > 0.0
+    assert compute_source_conflict(rec.retrieved_chunks) > 0.5
+    assert compute_freshness_gap(rec) == 1.0
+    assert compute_tool_argument_risk(rec) > 0.0
+
+
 def test_compute_signals_returns_full_vector_no_nan():
     s = compute_signals(_rec(
         user_prompt="What is the refund policy?",
@@ -103,6 +126,8 @@ def test_compute_signals_returns_full_vector_no_nan():
     assert s.retrieval_top_score == pytest.approx(0.88)
     assert s.retrieval_margin == pytest.approx(0.14)
     assert s.claim_support == pytest.approx(1.0)
+    assert "retrieval_coverage" in s.to_dict()
+    assert "context_dilution" in s.to_dict()
     for name, val in s.to_dict().items():
         if isinstance(val, float):
             assert not math.isnan(val), name

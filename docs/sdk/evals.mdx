@@ -1,0 +1,81 @@
+---
+title: Corpus evals
+description: Score DebugAI against labeled failure corpora.
+---
+
+Use corpus evals to keep a growing library of real failures from production,
+support tickets, and regression tests. Each case is a normal `analyze()` capture
+plus an expected failure label.
+
+## Python
+
+```python
+from debugai import evaluate_corpus_file
+
+result = evaluate_corpus_file("failures.json")
+
+print(result["accuracy"])
+print(result["misses"])
+print(result["confusion"])
+```
+
+## CLI
+
+```bash
+debugai eval failures.json
+```
+
+## Corpus format
+
+```json
+{
+  "cases": [
+    {
+      "id": "tool-not-called",
+      "expected_failure": "tool_call_failure",
+      "prompt": "Search current shipping cutoff.",
+      "output": "The cutoff is 5pm today.",
+      "tools_expected": ["search"],
+      "tool_calls": []
+    },
+    {
+      "id": "invalid-citation",
+      "expected_failure": "citation_failure",
+      "system_prompt": "Answer with citations.",
+      "prompt": "What is the return window?",
+      "output": "The return window is 30 days [3].",
+      "chunks": ["Returns are available within 30 days."],
+      "similarity_scores": [0.91]
+    }
+  ]
+}
+```
+
+Accepted expected-label fields are `expected_failure`, `expected`, or `failure`.
+Use `healthy` for cases where no detector should fire.
+
+## Return value
+
+```json
+{
+  "total": 2,
+  "correct": 2,
+  "accuracy": 1.0,
+  "misses": [],
+  "results": [
+    {
+      "id": "tool-not-called",
+      "expected": "tool_call_failure",
+      "got": "tool_call_failure",
+      "ok": true,
+      "confidence": 0.8
+    }
+  ],
+  "confusion": {
+    "tool_call_failure": {"tool_call_failure": 1}
+  }
+}
+```
+
+Run this in CI after changing prompts, retrievers, chunking, schemas, tools, or
+detector thresholds.

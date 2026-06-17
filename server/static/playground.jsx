@@ -168,8 +168,34 @@
     return Object.entries(ev).slice(0, 5).map(([k, v]) => `${k}: ${JSON.stringify(v)}`);
   }
 
+  function AppNav({ current, user, onLogout }) {
+    return (
+      <div className="app-nav" aria-label="DebugAI app navigation">
+        <div className="app-nav__primary">
+          <a className="app-nav__item" href="/dashboard">Dashboard</a>
+          <a className="app-nav__item" data-active={current === "playground"} href="/playground">Playground</a>
+          <a className="app-nav__item" href="/docs">Docs</a>
+        </div>
+        <div className="app-nav__account">
+          <a className="app-nav__item app-nav__item--muted" href="/account">
+            {user ? user.name : "Account"}
+          </a>
+          <button className="app-nav__icon" onClick={onLogout} title="Log out" type="button" aria-label="Log out">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   function App() {
     const [mode, setMode] = useState("debug");
+    const [user, setUser] = useState(null);
     const [f, setF] = useState(EXAMPLE);
     const [auditForm, setAuditForm] = useState(AUDIT_EXAMPLE);
     const [res, setRes] = useState(null);
@@ -188,6 +214,14 @@
       const value = e && e.target && e.target.type === "checkbox" ? e.target.checked : e.target.value;
       setAuditForm(p => ({ ...p, [k]: value }));
     };
+
+    useEffect(() => {
+      fetch("/api/auth/me").then(async resp => {
+        if (resp.status === 401) { window.location.href = "/login"; return; }
+        const data = await resp.json();
+        setUser(data);
+      }).catch(() => {});
+    }, []);
 
     // Debounced auto-analyze
     useEffect(() => {
@@ -251,6 +285,11 @@
       finally { setSaving(false); }
     };
 
+    const logout = async () => {
+      await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+      window.location.href = "/";
+    };
+
     const ui = res && res.ui;
     const fix = res && res.fix;
     const auditIssues = audit && audit.issues ? audit.issues : [];
@@ -265,16 +304,23 @@
             </div>
             <div>
               <div className="dash-title">Playground</div>
-              <div className="dash-sub">← dashboard · edit a case, watch the diagnosis update live</div>
+              <div className="dash-sub">test bad outputs and audit prompts before production</div>
             </div>
           </a>
-          <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "center" }}>
+          <AppNav current="playground" user={user} onLogout={logout} />
+        </div>
+
+        <div className="playground-toolbar">
+          <div className="playground-toolbar__group" role="tablist" aria-label="Playground mode">
             <button className={mode === "debug" ? "view-tab active" : "view-tab"} onClick={() => setMode("debug")} type="button">
               Output debugger
             </button>
             <button className={mode === "audit" ? "view-tab active" : "view-tab"} onClick={() => setMode("audit")} type="button">
               Prompt audit
             </button>
+          </div>
+          <div className="playground-toolbar__spacer" />
+          <div className="playground-toolbar__group">
             {mode === "debug" && (
               <button className="view-tab" onClick={() => setShowAdvanced(v => !v)} type="button">
                 {showAdvanced ? "Simple view" : "Advanced view"}

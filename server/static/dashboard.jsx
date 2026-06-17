@@ -685,6 +685,44 @@
     );
   }
 
+  // ── Authenticated app navigation ─────────────────────────────────────────
+  function AppNav({ current, view, setView, user, workspace, onWorkspaceSwitch, onLogout }) {
+    const isDashboard = current === "dashboard";
+    const viewItems = ["diagnoses", "traces", "sessions"];
+    return (
+      <div className="app-nav" aria-label="DebugAI app navigation">
+        <div className="app-nav__primary">
+          {isDashboard && <WorkspaceSwitcher workspace={workspace} onSwitch={onWorkspaceSwitch} />}
+          {isDashboard ? (
+            viewItems.map(v => (
+              <button key={v} className="app-nav__item" data-active={view === v}
+                onClick={() => setView(v)} type="button">
+                {v === "diagnoses" ? "Diagnoses" : v === "traces" ? "Traces" : "Sessions"}
+              </button>
+            ))
+          ) : (
+            <a className="app-nav__item" href="/dashboard">Dashboard</a>
+          )}
+          <a className="app-nav__item" data-active={!isDashboard} href="/playground">Playground</a>
+          <a className="app-nav__item" href="/docs">Docs</a>
+        </div>
+        <div className="app-nav__account">
+          <a className="app-nav__item app-nav__item--muted" href="/account">
+            {user ? user.name : "Account"}
+          </a>
+          <button className="app-nav__icon" onClick={onLogout} title="Log out" type="button" aria-label="Log out">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── App ────────────────────────────────────────────────────────────────────
   function App() {
     const [user, setUser] = useState(null);
@@ -789,18 +827,15 @@
               <div className="dash-sub">signal → diagnosis → fix · live request feed</div>
             </div>
           </a>
-          <div className="dash-nav">
-            <WorkspaceSwitcher workspace={workspace} onSwitch={() => {}} />
-            {["diagnoses", "traces", "sessions"].map(v => (
-              <button key={v} className="view-tab" data-active={view === v} onClick={() => setView(v)} type="button">{v}</button>
-            ))}
-            <a className="view-tab" href="/playground">playground ↗</a>
-            <a className="view-tab" href="/account" title="Account settings">account ↗</a>
-            {user && <span className="dash-user">{user.name}</span>}
-            <button className="view-tab" onClick={logout} title="Log out" type="button" aria-label="Log out">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-            </button>
-          </div>
+          <AppNav
+            current="dashboard"
+            view={view}
+            setView={setView}
+            user={user}
+            workspace={workspace}
+            onWorkspaceSwitch={() => {}}
+            onLogout={logout}
+          />
         </div>
 
         {/* Toolbar */}

@@ -1,0 +1,48 @@
+---
+title: Feedback calibration
+description: Track whether diagnoses and fixes were accepted.
+---
+
+`FeedbackTracker` records whether a diagnosis was accepted by a user and whether
+the proposed fix worked. Use it in your own app, offline analysis, or dashboard
+pipelines to see which failure classes need better thresholds or repair logic.
+
+## Example
+
+```python
+from debugai import FeedbackEvent, FeedbackTracker
+
+tracker = FeedbackTracker()
+
+tracker.record(FeedbackEvent(
+    diagnosis_id="diag_123",
+    failure="retrieval_failure",
+    accepted=True,
+    fix_worked=False,
+    confidence=0.91,
+    note="Retriever needed metadata filters, not just re-chunking.",
+))
+
+print(tracker.stats())
+```
+
+## Stats
+
+```json
+{
+  "total": 1,
+  "by_failure": {
+    "retrieval_failure": {
+      "total": 1,
+      "accepted": 1,
+      "rejected": 0,
+      "fix_failed": 1,
+      "accept_rate": 1.0,
+      "fix_success_rate": 0.0
+    }
+  }
+}
+```
+
+The hosted dashboard also records feedback through `/api/feedback` so future
+calibration can be based on real user judgment instead of only static defaults.

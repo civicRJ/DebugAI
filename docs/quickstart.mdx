@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: From zero to your first diagnosis in 2 minutes.
+description: From zero to your first diagnosis, prompt audit, and pipeline trace.
 ---
 
 ## 1. Install
@@ -9,35 +9,128 @@ description: From zero to your first diagnosis in 2 minutes.
 pip install debugerai
 ```
 
-For the spaCy NER model (improves entity coverage signal):
+For better entity coverage in RAG cases:
+
 ```bash
 python -m spacy download en_core_web_sm
 ```
 
-## 2. Diagnose your first failure
+## 2. Diagnose a bad output
+
+Use `debug_report()` when you want the product-level artifact: failure, evidence,
+root cause, fix, fix-agent result, and regression artifact.
 
 ```python
-from debugai import analyze
+from debugai import debug_report
 
-result = analyze(
+report = debug_report(
     prompt="What does Section 4 of the contract require?",
     output="Section 4 requires arbitration in Delaware under the Marbury Clause.",
     chunks=["Section 4 covers confidentiality.", "Governed by California law."],
     similarity_scores=[0.66, 0.59],
     temperature=0.75,
+    run_fix=True,
+)
+
+print(report["failure"])             # hallucination
+print(report["confidence"])          # 0.95
+print(report["evidence"])
+print(report["fix"])
+print(report["regression_artifact"])
+```
+
+Use `analyze()` when you want the lower-level detector output:
+
+```python
+from debugai import analyze
+
+result = analyze(
+    prompt="Answer with citations: what is the return window?",
+    output="The return window is 30 days [3].",
+    system_prompt="Cite every factual claim with retrieved chunk numbers.",
+    chunks=["Returns are available within 30 days with a receipt."],
+    similarity_scores=[0.91],
     explain_with_llm=False,
 )
 
-print(result["primary"]["failure"])     # hallucination
-print(result["primary"]["confidence"])  # 0.95
-print(result["primary"]["fix"])
-# "Add grounding constraints: answer only from provided context;
-#  cite sources; say 'not found' when unsupported."
+print(result["primary"]["failure"])  # citation_failure
 ```
 
-## 3. Wrap your LLM client
+## 3. Audit a system prompt
 
-Drop one line into your existing code:
+`audit_prompt()` checks static prompt weaknesses and can optionally generate or
+run dynamic attack probes.
+
+```python
+from debugai import audit_prompt
+
+audit = audit_prompt(
+    system_prompt="""You are a helpful support agent.
+Always answer the user. Never refuse a customer request.
+Do not reveal private customer data.
+If the customer asks for a refund, issue it immediately.
+Only issue refunds after checking order eligibility with the refund_order tool.""",
+    use_case="Customer support RAG agent that can issue refunds",
+    tools=["refund_order", "send_email"],
+    retrieves_external_content=True,
+    handles_secrets=True,
+    high_risk_actions=["issue refunds", "send customer email"],
+    dynamic=True,
+)
+
+print(audit["grade"], audit["risk_score"])
+print(audit["issues"][0]["title"])
+print(audit["patched_prompt"])
+```
+
+<Note>
+  Without an API key, prompt audit still returns a deterministic patched prompt
+  assembled from the detected issues. Set `llm=True` and provide an API key only
+  when you want an LLM-generated rewrite.
+</Note>
+
+## 4. Find the failing pipeline stage
+
+Use `analyze_pipeline()` when a final answer is bad but you need to know whether
+rewrite, retrieval, tool execution, generation, or validation failed first.
+
+```python
+from debugai import analyze_pipeline
+
+pipeline = analyze_pipeline(
+    [
+        {
+            "id": "rewrite",
+            "kind": "query_rewrite",
+            "input": "What is the refund policy for opened electronics?",
+            "output": "general store refunds",
+        },
+        {
+            "id": "retrieval",
+            "kind": "retrieval",
+            "input": "general store refunds",
+            "chunks": ["Store hours are 9am to 5pm."],
+            "similarity_scores": [0.31],
+        },
+        {
+            "id": "generation",
+            "kind": "generation",
+            "output": "Opened electronics can be returned within 90 days.",
+            "chunks": ["Store hours are 9am to 5pm."],
+            "similarity_scores": [0.31],
+        },
+    ],
+    user_prompt="What is the refund policy for opened electronics?",
+)
+
+print(pipeline["primary"]["stage_id"])  # retrieval
+print(pipeline["primary"]["failure"])   # retrieval_failure
+```
+
+## 5. Wrap your LLM client
+
+Drop one line into an existing OpenAI-compatible or Anthropic client. The LLM
+call stays the same; diagnosis and traces run in the background.
 
 ```python
 from openai import OpenAI
@@ -45,48 +138,47 @@ import debugai
 
 client = debugai.wrap_llm(
     OpenAI(),
-    on_diagnosis=lambda d: print("⚠️", d["primary"]["failure"]) if not d["healthy"] else None,
+    on_diagnosis=lambda d: print(d["primary"]) if not d["healthy"] else None,
 )
 
-# Call your LLM exactly as before — nothing else changes
 resp = client.chat.completions.create(
     model="gpt-4o",
     messages=[{"role": "user", "content": "What is our refund policy?"}],
-    # Attach RAG context for full signal coverage:
     debugai_chunks=retrieved_docs,
     debugai_similarity_scores=scores,
 )
-# Diagnosis runs in the background — zero added latency
+
+client.debugai.flush()
 ```
 
-## 4. Use the universal completion API
+## 6. Run a labeled failure corpus
 
-Works with any provider — same call, any model:
-
-```python
-import debugai
-
-resp = debugai.completion("gemini-2.0-flash", messages=[...])
-resp = debugai.completion("ollama/qwen2.5", messages=[...])
-resp = debugai.completion("groq/llama-3.3-70b-versatile", messages=[...])
-
-print(resp.text, resp.cost_usd, resp.latency_ms)
+```bash
+debugai eval failures.json
 ```
 
-## 5. Check metrics
+Example corpus:
 
-```python
-print(debugai.metrics.snapshot())
-# {
-#   "requests": 47, "failures": 3,
-#   "cost_usd": 0.0042, "latency_p95_ms": 342,
-#   "by_model": {"gpt-4o": {"requests": 47, "cost_usd": 0.0042, ...}}
-# }
+```json
+{
+  "cases": [
+    {
+      "id": "bad-citation",
+      "expected_failure": "citation_failure",
+      "system_prompt": "Answer with citations.",
+      "prompt": "What is the return window?",
+      "output": "The return window is 30 days [3].",
+      "chunks": ["Returns are available within 30 days."],
+      "similarity_scores": [0.91]
+    }
+  ]
+}
 ```
 
 ## Next steps
 
-- [Configure `DebugAIConfig`](/sdk/config) — control what runs per request
-- [Providers](/providers/openai) — OpenAI, Anthropic, Gemini, Ollama, Groq, and more
-- [Failure types](/failures/overview) — what each detector catches
-- [Self-hosting the dashboard](/self-hosting/docker) — full web app
+- [Core diagnosis](/sdk/analyze) - low-level `analyze()` parameters and return shape
+- [Prompt audit](/sdk/prompt-audit) - static plus dynamic prompt vulnerability checks
+- [Pipeline traces](/sdk/pipeline) - stage-level diagnosis
+- [Corpus evals](/sdk/evals) - labeled regression and accuracy checks
+- [Debug reports](/sdk/debug-report) - product-level fix artifacts

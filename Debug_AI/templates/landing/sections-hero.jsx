@@ -31,7 +31,7 @@ function Nav() {
         <div className="nav__links">
           <a href="#how">How it works</a>
           <a href="#usecases">Use cases</a>
-          <a href="#cta">Beta</a>
+          <a href="/playground">Prompt audit</a>
           <a href="/pricing">Pricing</a>
           <a href="/docs">Docs</a>
           <a href="/dashboard">Dashboard</a>
@@ -39,7 +39,7 @@ function Nav() {
         <div className="nav__spacer" />
         <div className="nav__actions">
           <Button variant="ghost" size="sm" onClick={() => window.location.href = "/login"}>Sign in</Button>
-          <Button variant="primary" size="sm" onClick={() => window.location.href = "#cta"}>Join beta</Button>
+          <Button variant="primary" size="sm" onClick={() => window.location.href = "#cta"}>Start free</Button>
         </div>
       </div>
     </nav>
@@ -264,21 +264,21 @@ function Hero() {
             <span className="sig">silently.</span>
           </h1>
           <p className="hero__lead">
-            DebugAI names the failure, explains why, and fixes it — in seconds.
-            Drop one line into your stack. Every bad output gets a root cause,
-            a confidence score, and a specific fix.
+            DebugAI names the failing layer, explains why, and produces the fix
+            artifact. Drop one line into your stack to catch retrieval, grounding,
+            schema, tool, citation, prompt, runtime, and safety failures.
           </p>
           <div className="hero__proof">
-            <div className="hero__proof-item"><b>8</b> deterministic signals</div>
+            <div className="hero__proof-item"><b>8 core</b> + pipeline signals</div>
             <div className="hero__proof-sep" />
-            <div className="hero__proof-item"><b>9</b> failure detectors</div>
+            <div className="hero__proof-item"><b>14</b> detectors</div>
             <div className="hero__proof-sep" />
-            <div className="hero__proof-item"><b>&lt;5ms</b> healthy-path overhead</div>
+            <div className="hero__proof-item"><b>prompt</b> audit + pipeline trace</div>
           </div>
           <div className="hero__cta">
             <Button variant="primary" size="lg"
               onClick={() => window.location.href = "#cta"}>
-              Join beta
+              Start debugging free
             </Button>
             <Button variant="secondary" size="lg" mono
               onClick={() => window.location.href = "https://github.com/civicRJ/DebugAI"}>

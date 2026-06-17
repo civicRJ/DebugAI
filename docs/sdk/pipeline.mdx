@@ -1,0 +1,101 @@
+---
+title: analyze_pipeline()
+description: Diagnose where a multi-stage LLM pipeline failed.
+---
+
+Use `analyze_pipeline()` when the final answer is bad and you need to know which
+stage caused it: query rewrite, retrieval, context packing, tool execution,
+generation, or validation.
+
+## Signature
+
+```python
+debugai.analyze_pipeline(
+    stages: list[dict],
+    *,
+    system_prompt: str = "",
+    user_prompt: str = "",
+    output_schema: dict | None = None,
+) -> dict
+```
+
+## Stage shape
+
+Each stage is a dictionary with an `id` and `kind`. Unknown kinds are preserved
+as healthy metadata. Recognized kinds include:
+
+| Kind | Checks |
+|---|---|
+| `query_rewrite` | Query drift from the original user request |
+| `retrieval` | Low similarity, context dilution, source conflict |
+| `tool` | Missing calls, malformed JSON arguments, error statuses |
+| `generation` | Full `analyze()` pass on the generated answer |
+| `validation` | Schema validation against `schema` or `output_schema` |
+
+## Example
+
+```python
+from debugai import analyze_pipeline
+
+trace = analyze_pipeline(
+    [
+        {
+            "id": "rewrite",
+            "kind": "query_rewrite",
+            "input": "What is the refund policy for opened electronics?",
+            "output": "general store refunds",
+        },
+        {
+            "id": "retrieval",
+            "kind": "retrieval",
+            "input": "general store refunds",
+            "chunks": ["Store hours are 9am to 5pm."],
+            "similarity_scores": [0.31],
+        },
+        {
+            "id": "generation",
+            "kind": "generation",
+            "output": "Opened electronics can be returned within 90 days.",
+            "chunks": ["Store hours are 9am to 5pm."],
+            "similarity_scores": [0.31],
+        },
+    ],
+    user_prompt="What is the refund policy for opened electronics?",
+)
+
+print(trace["healthy"])               # False
+print(trace["primary"]["stage_id"])    # retrieval
+print(trace["primary"]["failure"])     # retrieval_failure
+```
+
+## Return value
+
+```json
+{
+  "healthy": false,
+  "primary": {
+    "stage_id": "retrieval",
+    "kind": "retrieval",
+    "failure": "retrieval_failure",
+    "severity": "critical",
+    "confidence": 0.85,
+    "root_cause": "Mean retrieval similarity 0.31 is below 0.50.",
+    "fix": "Tune retriever/reranker, preserve entities in rewrite, or re-chunk the source corpus.",
+    "evidence": {"similarity": 0.31}
+  },
+  "stages": [
+    {"id": "rewrite", "kind": "query_rewrite", "healthy": true, "issues": []},
+    {"id": "retrieval", "kind": "retrieval", "healthy": false, "issues": []}
+  ],
+  "issues": []
+}
+```
+
+## CLI
+
+```bash
+debugai pipeline trace.json --json
+```
+
+`trace.json` can be a list of stages or an object containing `stages`,
+`system_prompt`, `user_prompt`, and `output_schema`.

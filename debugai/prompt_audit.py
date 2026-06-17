@@ -25,8 +25,14 @@ _WEAK_RE = re.compile(
     r"should generally|usually|as much as possible|when you can)\b",
     re.IGNORECASE,
 )
-_ALWAYS_RE = re.compile(r"\b(always|must|never refuse|answer every|respond to every)\b", re.IGNORECASE)
+_ALWAYS_RE = re.compile(r"\b(always|must|answer every|respond to every)\b", re.IGNORECASE)
+_NEVER_REFUSE_RE = re.compile(r"\bnever refuse\b", re.IGNORECASE)
 _REFUSAL_RE = re.compile(r"\b(refuse|decline|do not answer|cannot answer|not enough|unsupported|out of scope)\b", re.IGNORECASE)
+_SAFETY_OR_GATE_RE = re.compile(
+    r"\b(private|sensitive|secret|pii|api key|token|credential|password|"
+    r"only issue|only use|after checking|approval|confirm|eligible|eligibility|unsafe|policy)\b",
+    re.IGNORECASE,
+)
 _BOUNDARY_RE = re.compile(
     r"\b(untrusted|external content|retrieved content|context is data|data not instructions|"
     r"never follow instructions (?:from|inside) (?:retrieved|external|context))\b",
@@ -181,16 +187,19 @@ def _static_issues(
             "A user can pressure the assistant to treat weak guidance as optional.",
         ))
 
-    if _ALWAYS_RE.search(prompt) and _REFUSAL_RE.search(prompt):
+    if (
+        (_ALWAYS_RE.search(prompt) and _REFUSAL_RE.search(prompt))
+        or (_NEVER_REFUSE_RE.search(prompt) and _SAFETY_OR_GATE_RE.search(prompt))
+    ):
         issues.append(_issue(
             "conflicting_answer_refusal_rules",
             "critical",
             "prompt",
-            "Answering and refusal rules conflict",
-            "The prompt appears to require always answering while also requiring refusal or unsupported-answer behavior.",
+            "Answering and safety rules conflict",
+            "The prompt has an unconditional answer/never-refuse rule that can override safety, privacy, grounding, or tool-approval constraints.",
             "Set an explicit priority order: safety, scope, grounding, then helpfulness.",
             "Instruction priority: safety and scope rules override helpfulness. If a request is unsafe, out of scope, or unsupported, refuse instead of answering.",
-            "An attacker can cite the 'always answer' rule to bypass refusal or grounding rules.",
+            "An attacker can cite the answer/never-refuse rule to bypass privacy, grounding, or tool-use gates.",
         ))
 
     if _needs_external_boundary(use_case, retrieves_external_content) and not _BOUNDARY_RE.search(prompt):

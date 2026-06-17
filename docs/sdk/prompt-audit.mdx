@@ -26,7 +26,8 @@ debugai.audit_prompt(
 ## What It Detects
 
 - weak wording such as `try to`, `if possible`, or `be careful`
-- conflicting rules like “always answer” plus refusal or grounding rules
+- unconditional answer or never-refuse rules that can override safety, privacy,
+  grounding, or tool-approval constraints
 - missing RAG / external-content trust boundaries
 - missing tool-use and human-approval policies
 - missing secret-handling and prompt-leakage rules
@@ -54,6 +55,12 @@ print(audit["issues"])
 print(audit["patched_prompt"])
 ```
 
+<Note>
+  `patched_prompt` does not require an API key. When `llm=False`, DebugAI builds
+  a deterministic patch from the detected issues. When `llm=True`, DebugAI asks
+  the configured model for an additional prompt rewrite.
+</Note>
+
 ## Dynamic Runner
 
 Pass a callable to execute generated attack probes against your own app or test harness.
@@ -72,3 +79,19 @@ audit = audit_prompt(
 ```
 
 When no `target_runner` is provided, DebugAI still generates attack probes but marks them `not_run`.
+
+## Detection Modes
+
+| Mode | How it works | Requires key |
+|---|---|---|
+| Static | Regex and rule checks for weak language, contradictions, missing boundaries, tool risk, schema gaps, secrets, and excessive agency | No |
+| Dynamic probes | Generates attack cases and marks them `not_run`, or executes them through `target_runner` | No, unless your runner uses one |
+| LLM audit | Optional model review that adds issues and a patch proposal | Yes |
+
+## Example Issue
+
+If a prompt says both `Never refuse a customer request` and `Do not reveal private
+customer data`, DebugAI reports an answering/safety conflict because the
+never-refuse rule can be used to bypass privacy or approval constraints. If a
+prompt only says `Always be helpful`, DebugAI should not report that same
+critical conflict unless there is another rule it can override.

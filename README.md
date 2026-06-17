@@ -3,17 +3,19 @@
 [![CI](https://github.com/civicRJ/DebugAI/actions/workflows/ci.yml/badge.svg)](https://github.com/civicRJ/DebugAI/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-amber.svg)](LICENSE)
 
-> A pip-installable LLM debugging SDK that tells you **why** an AI response failed, shows the evidence, and proposes the fix.
+> A pip-installable LLM debugging SDK that tells you **why** an AI response failed, where the pipeline failed, and what fix to ship.
 
 DebugAI is built around the Python SDK first. Wrap your LLM client or call
 `debug_report()` directly, and DebugAI returns a product-level debug artifact:
-failure type, confidence, evidence, root cause, fix, and verification status.
-The hosted dashboard and traces are supporting views, not the core workflow.
+failure type, failing layer, confidence, evidence, root cause, fix, verification
+status, and a regression artifact. The hosted dashboard and traces are
+supporting views, not the core workflow.
 
 This repository includes the deterministic diagnosis core, the signal engine,
 the rule engine, the `analyze()` API with an optional LLM explainer, the
-`wrap_llm()` SDK wrapper, and a web dashboard built on the `Debug_AI/` design
-system.
+`wrap_llm()` SDK wrapper, prompt vulnerability audit, pipeline trace analysis,
+corpus evals, feedback calibration, and a web dashboard built on the
+`Debug_AI/` design system.
 
 ## SDK quickstart
 
@@ -80,7 +82,7 @@ print(audit["patched_prompt"])
 
 | Layer | Type | Module | What it does |
 |------|------|--------|--------------|
-| 1 — Signal Extraction | deterministic | `debugai/signals.py` | Computes the 8-metric signal vector (small CPU models + fallbacks, lazy eval) |
+| 1 — Signal Extraction | deterministic | `debugai/signals.py` | Computes the 8 core signals plus auxiliary pipeline/security fields (small CPU models + fallbacks, lazy eval) |
 | 2 — Rule Engine | deterministic | `debugai/detectors.py`, `diagnosis.py` | Failure detectors across retrieval, grounding, tools, schema, prompt, safety, runtime → primary + secondary diagnosis |
 | 3 — LLM Explainer | probabilistic | `debugai/explainer.py` | Translates the diagnosis into human-readable explanation + fix (Claude; deterministic fallback) |
 | API | — | `debugai/analyze.py` | Level-1 single-call entry point |
@@ -88,16 +90,34 @@ print(audit["patched_prompt"])
 **Detection is deterministic; only the explanation uses an LLM.** Healthy
 requests fail open (no LLM tokens, no cost).
 
-### The 8 signals
+### Signal coverage
 context-output overlap · entity coverage · retrieval similarity · contradiction
 (NLI) · output variance (proxy) · latency · token-usage ratio · context-length
 ratio.
+
+Auxiliary fields add stage and safety visibility: retrieval top score/margin,
+retrieval entropy, query drift, chunk redundancy, claim support, retrieval
+coverage, context dilution, source conflict, freshness gap, tool-argument risk,
+instruction conflict, and refusal behavior.
 
 ### Detector layers
 runtime · schema · tool execution · retrieval · citation · knowledge-base gaps ·
 grounding/hallucination · prompt brittleness/ambiguity · prompt injection ·
 sensitive data leakage. All run; results are ranked by confidence; gate patterns
 prevent nonsensical combinations.
+
+### Prompt and pipeline debugging
+
+- `audit_prompt()` scans system prompts for weak wording, answering/safety
+  conflicts, missing trust boundaries, tool approval gaps, secret-handling gaps,
+  schema gaps, and optional dynamic attack probes.
+- `analyze_pipeline()` diagnoses query rewrite, retrieval, tool execution,
+  generation, and validation traces so you can fix the first bad stage instead
+  of only staring at the final answer.
+- `evaluate_corpus_file()` scores a labeled failure corpus for CI and regression
+  tracking.
+- `FeedbackTracker` records whether users accepted a diagnosis and whether the
+  proposed fix worked.
 
 ## Quickstart
 
@@ -485,11 +505,16 @@ with session("conv-42"):                       # group a conversation
 
 ### Playground
 
-`/playground` is a live editor: tweak the system prompt, query, output, chunks,
-scores, or temperature and the diagnosis + signal bars update as you type
-(`POST /api/playground`, non-storing). When a fix is proposed you can **apply it
-to the system prompt** in place and re-analyze — the interactive
-diagnose → fix → re-check loop.
+`/playground` is a live workbench with two modes:
+
+- **Output debugger:** tweak the system prompt, query, output, chunks, scores,
+  schema, tools, or temperature and the diagnosis + signal bars update as you
+  type (`POST /api/playground`, non-storing). When a fix is proposed you can
+  apply it to the system prompt in place and re-analyze.
+- **Prompt audit:** paste a system prompt plus use-case context, tools, external
+  content settings, secrets, schema, and high-risk actions. DebugAI returns
+  vulnerabilities, attack probes, risk score, grade, and a patched prompt
+  (`POST /api/prompt-audit`, non-storing).
 
 ### "Debug a bug" workbench
 
@@ -659,13 +684,16 @@ The web app is hardened for safe local/self-hosted use:
 
 ### Hardening a hosted deployment
 
-Everything above is on by default. For a public/hosted instance, set these env
-vars (the local demo needs none):
+Everything above is on by default. For a public/hosted instance, use account
+login plus per-account API tokens for programmatic ingest. The local demo needs
+none.
 
 | Env var | Effect |
 |---|---|
-| `DEBUGAI_API_KEY` | require a matching `X-API-Key` header on every `/api/*` call (constant-time compare). The dashboard prompts for the key via the 🔑 button and stores it in `localStorage`. |
+| `DEBUGAI_KEY_SECRET` | encrypts stored user LLM keys; required in production when users save provider keys. |
+| `DEBUGAI_STRICT_CSRF` | require same-origin unsafe API requests when using session cookies. Enabled automatically with `DATABASE_URL`. |
 | `DEBUGAI_RATE_LIMIT` | per-client `/api/*` requests per minute (default 240); over-limit → `429` + `Retry-After`. |
+| `DEBUGAI_AUTH_RATE_LIMIT` | stricter auth endpoint rate limit (default 30/min; set `0` only for local testing). |
 | `DEBUGAI_TRUST_PROXY` | use the first `X-Forwarded-For` hop for client identity behind a reverse proxy. |
 | `DEBUGAI_SSL_CERT` / `DEBUGAI_SSL_KEY` | serve HTTPS directly (`./run.sh`), or terminate TLS at a proxy (nginx/Caddy). |
 

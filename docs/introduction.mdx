@@ -6,70 +6,96 @@ description: What DebugAI is, why it exists, and how it works.
 ## The problem
 
 LLM applications fail silently. A RAG pipeline returns confidently wrong answers.
-A Socratic tutor reveals the solution on the first turn. A chatbot invents policy
-details not present in any document. Traditional observability tools show you
-*that* something went wrong — but not *why*, and not *how to fix it*.
+A support agent skips a required tool. A prompt has weak approval rules. A schema
+response looks valid until a downstream service rejects it. Observability can
+show that something happened; DebugAI is built to say what failed, where it
+failed, and what to change.
 
 ## What DebugAI does
 
-DebugAI is a **deterministic LLM failure diagnosis engine**. Given a prompt, an
-output, and optionally the retrieved context, it computes 8 signals and runs 5
-failure detectors to produce a ranked diagnosis:
+DebugAI is an **LLM failure diagnosis engine**. Given a prompt, output, and
+optional runtime context, it computes deterministic signals, runs detector
+layers, and returns a ranked diagnosis with evidence and a fix.
 
 ```python
-from debugai import analyze
+from debugai import debug_report
 
-result = analyze(
+report = debug_report(
     prompt="What is the refund policy for electronics?",
     output="Electronics can be returned within 90 days for a full cash refund.",
     chunks=["Store hours are 9am to 5pm.", "Parking is behind the building."],
     similarity_scores=[0.42, 0.40],
+    run_fix=True,
 )
 
-print(result["primary"]["failure"])     # retrieval_failure
-print(result["primary"]["confidence"])  # 0.95
-print(result["primary"]["fix"])         # specific fix string
+print(report["failure"])        # retrieval_failure
+print(report["evidence"])       # short evidence bullets
+print(report["fix"])            # specific repair guidance
+print(report["regression_artifact"])
 ```
 
 <Note>
-  Detection is 100% deterministic — no LLM, no randomness. The same input always
-  produces the same diagnosis. Safe to run in CI and pin in regression tests.
+  Detection is deterministic by default: no LLM, no randomness, and stable
+  output for the same input. Optional LLM layers are available for explanations,
+  instruction judging, and dynamic prompt-audit probes.
 </Note>
 
-## The five failure types
+## Failure coverage
 
-| Failure | When | Severity |
-|---|---|---|
-| `retrieval_failure` | Retrieved chunks don't match the query | Critical |
-| `hallucination` | Output is ungrounded in the retrieved context | Critical |
-| `context_overflow` | Prompt fills the context window, truncating content | Critical |
-| `entity_gap` | Output claims specific entities absent from the KB | Warning |
-| `prompt_brittleness` | Same prompt produces inconsistent outputs | Warning |
-| `instruction_violation` | Output violates the system prompt's own rules | Critical |
+DebugAI starts from 8 core signals: context-output overlap, entity coverage,
+retrieval similarity, contradiction, output variance, latency, token-usage
+ratio, and context-length ratio. It also computes auxiliary pipeline and
+security fields such as retrieval margin, query drift, claim support, context
+dilution, source conflict, tool-argument risk, instruction conflict, and refusal
+signals.
 
-## Architecture
+The detector layer covers:
+
+| Layer | Failures |
+|---|---|
+| Retrieval | `retrieval_failure`, `retrieval_ambiguity`, `query_drift` |
+| Grounding | `hallucination`, `entity_gap`, `citation_failure` |
+| Contracts | `schema_violation`, `tool_call_failure`, `tool_result_ignored` |
+| Runtime | `context_overflow` |
+| Prompt behavior | `prompt_brittleness`, `ambiguous_prompt`, `instruction_violation` |
+| Safety | `prompt_injection`, `sensitive_data_leak` |
+
+## Debugging layers
 
 ```
-  Input (prompt + output + chunks)
+  Capture (prompt, output, chunks, tools, schema, runtime)
         │
         ▼
-  ┌─────────────────┐
-  │  8 Signals       │  deterministic (spaCy, MiniLM, DeBERTa, math)
-  │  compute_signals │
-  └────────┬────────┘
-           │
+  ┌──────────────────────┐
+  │  Signals              │ deterministic metrics + pipeline fields
+  └─────────┬────────────┘
+            │
         ▼
-  ┌─────────────────┐
-  │  5 Detectors    │  deterministic rule engine
-  │  diagnose()     │
-  └────────┬────────┘
-           │
+  ┌──────────────────────┐
+  │  Detectors            │ retrieval, grounding, schema, tools, safety
+  └─────────┬────────────┘
+            │
         ▼
-  ┌─────────────────┐
-  │  LLM Explainer  │  probabilistic (optional, uses your key)
-  │  explain()      │
-  └─────────────────┘
+  ┌──────────────────────┐
+  │  Fix artifact         │ root cause, fix, regression test skeleton
+  └─────────┬────────────┘
+            │
+        ▼
+  ┌──────────────────────┐
+  │  Optional LLM layers  │ explainer, judge, dynamic prompt audit
+  └──────────────────────┘
 ```
+
+## Beyond single-call diagnosis
+
+- `audit_prompt()` finds static prompt vulnerabilities and can run dynamic attack
+  probes against your own harness.
+- `analyze_pipeline()` points to the failing stage in a query rewrite,
+  retrieval, tool, generation, or validation trace.
+- `evaluate_corpus_file()` scores a labeled failure corpus so you can track
+  detector accuracy over time.
+- `debug_report()` returns the product-level artifact most teams should log in
+  CI, support tickets, and incident reviews.
 
 ## Install
 

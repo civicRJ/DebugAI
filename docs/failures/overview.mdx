@@ -1,54 +1,65 @@
 ---
 title: Failure Types
-description: The five (plus one) failures DebugAI detects and what each means.
+description: The detector layers DebugAI runs and what each failure means.
 ---
 
-DebugAI's rule engine runs all detectors on every request, ranks them by confidence, and returns a primary failure plus any secondary issues. Detection is **fully deterministic** — no LLM, no randomness.
+DebugAI's rule engine runs all detectors on every request, ranks them by
+confidence, and returns a primary failure plus secondary issues. Detection is
+deterministic unless you explicitly enable optional LLM layers such as the
+instruction judge.
 
-## The five core detectors
+## Detector coverage
 
-| Failure | Checked | Severity | What it catches |
+| Failure | Layer | Severity | What it catches |
 |---|---|---|---|
-| `context_overflow` | 1st | Critical | Prompt fills the context window; content is truncated |
-| `retrieval_failure` | 2nd | Critical | Retrieved chunks don't match the query |
-| `entity_gap` | 3rd | Warning | Output mentions entities absent from the knowledge base |
-| `hallucination` | 4th | Critical | Output is ungrounded in the retrieved context |
-| `prompt_brittleness` | 5th | Warning | Same prompt produces inconsistent outputs |
-
-Detectors run in this order because earlier failures make later signals unreliable (e.g. if retrieval failed, checking for hallucination in the output is misleading).
-
-## The sixth: instruction_violation
-
-Detected by the **LLM-as-judge** (optional, requires an OpenAI key):
-
-| Failure | Severity | What it catches |
-|---|---|---|
-| `instruction_violation` | Critical | Output breaks the system prompt's own rules |
-
-Common violations for Socratic tutors: revealed the answer too early, asked more than one question, re-asked the same question reworded, or paraphrased the student's input.
+| `context_overflow` | runtime | Critical | Prompt/context fills the model window and likely truncates content |
+| `sensitive_data_leak` | safety | Critical | Output exposes API keys, tokens, credentials, PII, or secret-like values |
+| `schema_violation` | schema | Critical | Output violates the required JSON Schema |
+| `tool_call_failure` | tool execution | Critical | Required tool missing, wrong tool used, malformed args, or tool error |
+| `tool_result_ignored` | tool execution | Critical | Tool returned usable evidence but final answer ignored it |
+| `prompt_injection` | safety | Critical | Retrieved context contains instruction-like jailbreak text |
+| `query_drift` | retrieval | Warning | Query rewrite drifted away from the user request |
+| `retrieval_failure` | retrieval | Critical | Retrieved chunks do not match the query |
+| `retrieval_ambiguity` | retrieval | Warning | Top retrieved chunks are too close to rank confidently |
+| `citation_failure` | citation | Warning | Missing or invalid citations against retrieved chunks |
+| `entity_gap` | knowledge base | Warning | Output mentions entities absent from retrieved context |
+| `hallucination` | grounding | Critical | Retrieval succeeded but output is unsupported or contradictory |
+| `prompt_brittleness` | prompt | Warning | Grounding is healthy but outputs are unstable |
+| `ambiguous_prompt` | prompt | Warning | User request is underspecified but the model answered instead of clarifying |
+| `instruction_violation` | prompt behavior | Critical | Optional judge finds the output broke system-prompt rules |
 
 ## Confidence scores
 
-Each detector reports a confidence from 0–1. The score is based on how many signals fired and how strongly:
+Each detector reports a confidence from 0 to 1. Scores are based on which gates
+fired and how strongly the related signals support the failure.
 
-- **0.95** → gate fired + multiple strong boosts (very reliable)
-- **0.75** → gate fired + one moderate boost
-- **0.60** → gate barely fired (may be a borderline case)
+- `0.90+`: strong gated failure with multiple supporting signals
+- `0.70-0.89`: clear failure with one or more supporting signals
+- `0.60-0.69`: warning or borderline case worth reviewing
 
 ## Reading a result
 
 ```python
+from debugai import analyze
+
 result = analyze(prompt=..., output=..., chunks=..., similarity_scores=...)
 
 if not result["healthy"]:
     p = result["primary"]
     print(p["failure"])     # e.g. "retrieval_failure"
+    print(p["layer"])       # e.g. "retrieval"
     print(p["confidence"])  # e.g. 0.95
     print(p["severity"])    # "critical" or "warning"
-    print(p["fix"])         # specific, actionable fix string
-    print(p["evidence"])    # which signals triggered it
+    print(p["fix"])
+    print(p["evidence"])
 
-    # Multiple failures can co-occur:
     for s in result["secondary"]:
         print(s["failure"], s["confidence"])
 ```
+
+## Stage-level failures
+
+Use [Pipeline traces](/sdk/pipeline) when you need to map a failure back to the
+stage that produced it. A final `hallucination` can originate from retrieval,
+query rewrite, generation, validation, or tool execution; the pipeline analyzer
+keeps those causes separate.

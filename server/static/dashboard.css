@@ -27,7 +27,7 @@ html, body { margin: 0; background: var(--bg-base); color: var(--text-primary); 
 
 /* ── Header ──────────────────────────────────────────────────────────────── */
 .dash-head {
-  display: flex; align-items: flex-start; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between;
   gap: var(--space-6); flex-wrap: wrap; margin-bottom: var(--space-5);
 }
 .dash-brand { display: flex; align-items: center; gap: var(--space-3); text-decoration: none; color: inherit; }
@@ -52,6 +52,49 @@ html, body { margin: 0; background: var(--bg-base); color: var(--text-primary); 
   font-size: var(--text-xs); color: var(--text-secondary);
   font-family: var(--font-mono); padding: 0 var(--space-2);
   border-left: 1px solid var(--border-faint); margin-left: var(--space-1);
+}
+
+/* ── Authenticated app navigation ───────────────────────────────────────── */
+.app-nav {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  background: var(--bg-raised); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg); padding: var(--space-1);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+}
+.app-nav__primary,
+.app-nav__account {
+  display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap;
+}
+.app-nav__account {
+  padding-left: var(--space-2); margin-left: var(--space-1);
+  border-left: 1px solid var(--border-faint);
+}
+.app-nav__item {
+  min-height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--space-2); padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-secondary); text-decoration: none;
+  font-size: var(--text-sm); font-family: var(--font-sans);
+  cursor: pointer; white-space: nowrap;
+  transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
+}
+.app-nav__item:hover {
+  color: var(--text-primary); background: var(--bg-overlay); border-color: var(--border-faint);
+}
+.app-nav__item[data-active="true"] {
+  color: var(--amber-base); background: var(--amber-muted); border-color: var(--amber-700);
+}
+.app-nav__item--muted {
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+  color: var(--text-tertiary); font-family: var(--font-mono); font-size: var(--text-xs);
+}
+.app-nav__icon {
+  width: 34px; height: 34px; display: inline-grid; place-items: center;
+  border: 1px solid transparent; border-radius: var(--radius-sm);
+  background: transparent; color: var(--text-tertiary); cursor: pointer;
+}
+.app-nav__icon:hover {
+  color: var(--critical-bright); background: var(--critical-muted); border-color: var(--critical-base);
 }
 
 /* ── Workspace switcher ───────────────────────────────────────────────────── */
@@ -375,6 +418,13 @@ details .trace:last-child { border-bottom: none; }
 .pg-editor { display: grid; gap: var(--space-3); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-5); }
 .pg-result { position: sticky; top: var(--space-4); }
 @media (max-width: 880px) { .pg-layout { grid-template-columns: 1fr; } .pg-result { position: static; } }
+.playground-toolbar {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+  padding: var(--space-3) 0; margin-bottom: var(--space-5);
+  border-top: 1px solid var(--border-faint); border-bottom: 1px solid var(--border-faint);
+}
+.playground-toolbar__group { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+.playground-toolbar__spacer { flex: 1; }
 .example-row { display: flex; gap: var(--space-2); flex-wrap: wrap; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-faint); }
 .check-row {
   display: flex; align-items: center; gap: var(--space-2);
@@ -400,6 +450,15 @@ details .trace:last-child { border-bottom: none; }
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 680px) {
   .dash-head { align-items: flex-start; }
+  .app-nav { width: 100%; align-items: stretch; }
+  .app-nav__primary { flex: 1; }
+  .app-nav__item { flex: 1 1 auto; }
+  .app-nav__account {
+    width: 100%; border-left: none; border-top: 1px solid var(--border-faint);
+    padding-left: 0; padding-top: var(--space-1); margin-left: 0;
+  }
+  .app-nav__item--muted { flex: 1; justify-content: flex-start; max-width: none; }
+  .playground-toolbar__spacer { display: none; }
   .dash-toolbar { gap: var(--space-1); overflow-x: auto; }
   .calib__lead { flex-direction: column; align-items: flex-start; gap: var(--space-2); }
   .calib__counts { margin-left: 0; flex-wrap: wrap; }

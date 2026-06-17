@@ -28,54 +28,28 @@
   "navigation": [
     {
       "group": "Getting Started",
-      "pages": ["introduction", "quickstart", "installation"]
+      "pages": ["introduction", "quickstart"]
     },
     {
       "group": "SDK",
       "pages": [
         "sdk/analyze",
+        "sdk/debug-report",
         "sdk/prompt-audit",
-        "sdk/wrap-llm",
-        "sdk/completion",
-        "sdk/config",
-        "sdk/metrics",
-        "sdk/compare"
-      ]
-    },
-    {
-      "group": "Providers",
-      "pages": [
-        "providers/openai",
-        "providers/anthropic",
-        "providers/gemini",
-        "providers/ollama",
-        "providers/groq",
-        "providers/custom"
-      ]
-    },
-    {
-      "group": "Integrations",
-      "pages": [
-        "integrations/langchain",
-        "integrations/llamaindex",
-        "integrations/crewai"
+        "sdk/pipeline",
+        "sdk/evals",
+        "sdk/feedback"
       ]
     },
     {
       "group": "Failure Types",
       "pages": [
-        "failures/overview",
-        "failures/retrieval-failure",
-        "failures/hallucination",
-        "failures/entity-gap",
-        "failures/prompt-brittleness",
-        "failures/context-overflow",
-        "failures/instruction-violation"
+        "failures/overview"
       ]
     },
     {
       "group": "Self-Hosting",
-      "pages": ["self-hosting/docker", "self-hosting/render", "self-hosting/configuration"]
+      "pages": ["self-hosting/docker"]
     }
   ],
   "footerSocials": {

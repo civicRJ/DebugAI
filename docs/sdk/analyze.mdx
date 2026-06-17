@@ -1,6 +1,6 @@
 ---
 title: analyze()
-description: The core diagnosis function — runs the full signal + detector pipeline.
+description: The core diagnosis function that runs signals, detectors, and optional explanation/judge layers.
 ---
 
 ## Signature
@@ -14,56 +14,117 @@ debugai.analyze(
     chunks: list[str] | None = None,
     similarity_scores: list[float] | None = None,
     retrieval_query: str | None = None,
+    expected_output: str | None = None,
+    model_name: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
     context_window: int | None = None,
     latency_ms: int | None = None,
-    token_usage: dict | None = None,
+    token_usage: dict[str, int] | None = None,
+    tool_calls: list[dict] | None = None,
+    tools_expected: list[str] | None = None,
+    response_schema: dict | None = None,
     thresholds: Thresholds = DEFAULT_THRESHOLDS,
-    explain_with_llm: bool = False,
+    explain_with_llm: bool = True,
+    lazy: bool = False,
     judge: bool = False,
+    judge_model: str | None = None,
     openai_api_key: str | None = None,
     anthropic_api_key: str | None = None,
-    lazy: bool = False,
+    variance_rerun: Callable | None = None,
+    variance_runs: int = 3,
 ) -> dict
 ```
 
-## Parameters
+## Required fields
 
 <ParamField path="prompt" type="string" required>
-  The user's input to the LLM.
+  The user prompt or query that produced the response.
 </ParamField>
 
 <ParamField path="output" type="string" required>
-  The LLM's response.
+  The LLM response to diagnose.
+</ParamField>
+
+## Context fields
+
+<ParamField path="system_prompt" type="string">
+  System/developer rules. Enables citation checks, instruction judging, and
+  better fix guidance.
 </ParamField>
 
 <ParamField path="chunks" type="list[str]">
-  Retrieved documents/chunks (RAG context). Unlocks the retrieval, overlap, entity coverage, and contradiction signals.
+  Retrieved documents or context chunks used for RAG grounding.
 </ParamField>
 
 <ParamField path="similarity_scores" type="list[float]">
-  Cosine similarity scores per chunk from your vector store. If not provided and chunks are present, scores are recomputed from the embedder.
+  Retriever scores aligned with `chunks`. If omitted and chunks are present,
+  DebugAI attempts to recompute similarity locally.
+</ParamField>
+
+<ParamField path="retrieval_query" type="string">
+  Query sent to the retriever. Use this when a query rewrite differs from the
+  user prompt; it enables query-drift detection.
+</ParamField>
+
+<ParamField path="expected_output" type="string">
+  Optional reference answer attached to the capture record.
+</ParamField>
+
+## Runtime and contract fields
+
+<ParamField path="model_name" type="string">
+  Model identifier stored in the diagnosis metadata.
 </ParamField>
 
 <ParamField path="temperature" type="float">
-  Sampling temperature used for the call. Powers the variance proxy signal.
+  Sampling temperature; contributes to prompt-brittleness signals.
+</ParamField>
+
+<ParamField path="max_tokens" type="int">
+  Requested output budget.
 </ParamField>
 
 <ParamField path="context_window" type="int">
-  Model's max context window in tokens. Enables the context-overflow detector.
+  Model context limit; enables context-overflow detection.
 </ParamField>
 
-<ParamField path="explain_with_llm" type="bool" default="false">
-  Use an LLM (Claude Haiku by default) to generate a human-readable explanation and fix. Requires `ANTHROPIC_API_KEY` or `anthropic_api_key`.
+<ParamField path="latency_ms" type="int">
+  End-to-end request latency.
+</ParamField>
+
+<ParamField path="token_usage" type="dict">
+  Token counts, usually `{"prompt": n, "completion": n, "total": n}`.
+</ParamField>
+
+<ParamField path="tool_calls" type="list[dict]">
+  Actual tool/function calls returned by the model. Include `name`, `input`,
+  `output` or `result`, `status`, and `error` when available.
+</ParamField>
+
+<ParamField path="tools_expected" type="list[str]">
+  Tool/function names the model was expected to call.
+</ParamField>
+
+<ParamField path="response_schema" type="dict">
+  JSON Schema used to detect structured-output violations.
+</ParamField>
+
+## Optional LLM layers
+
+<ParamField path="explain_with_llm" type="bool" default="true">
+  Run the optional LLM explainer. Set to `False` for fully deterministic local
+  diagnosis.
 </ParamField>
 
 <ParamField path="judge" type="bool" default="false">
-  Run the instruction-adherence judge (only meaningful when `system_prompt` is provided). Requires `OPENAI_API_KEY` or `openai_api_key`.
+  Run the instruction-adherence judge against `system_prompt`. Uses an LLM when
+  configured and falls back to deterministic heuristics when no key is present.
 </ParamField>
 
-<ParamField path="lazy" type="bool" default="false">
-  Skip expensive signals (embeddings, NER, NLI) if cheap signals are healthy. ~70% of requests skip Stage 3.
+<ParamField path="variance_rerun" type="callable">
+  Callable used to re-run the model for measured variance instead of the proxy
+  estimate.
 </ParamField>
 
 ## Return value
@@ -72,20 +133,32 @@ debugai.analyze(
 {
   "healthy": false,
   "primary": {
-    "failure": "retrieval_failure",
-    "confidence": 0.95,
+    "failure": "tool_call_failure",
+    "layer": "tool_execution",
+    "confidence": 0.8,
     "severity": "critical",
-    "root_cause": "Mean retrieval similarity 0.41 is below 0.50...",
-    "fix": "Re-chunk source documents with an entity-aware strategy...",
-    "evidence": { "similarity": 0.41, "entity_coverage": 0.0, "overlap": 0.11 }
+    "root_cause": "The agent/tool contract failed...",
+    "fix": "Constrain tool selection...",
+    "evidence": {
+      "issues": ["Expected one of ['search'] but no tool call was made."]
+    }
   },
   "secondary": [],
   "signals": {
-    "overlap": 0.11, "entity_coverage": 0.0, "similarity": 0.41,
-    "contradiction": 0.52, "variance": 0.13, "latency_ms": 0,
-    "token_ratio": 0.0, "context_ratio": 0.0
+    "overlap": 1.0,
+    "entity_coverage": 1.0,
+    "similarity": 1.0,
+    "contradiction": 0.0,
+    "variance": 0.0,
+    "latency_ms": 0,
+    "token_ratio": 0.0,
+    "context_ratio": 0.0,
+    "retrieval_margin": 1.0,
+    "query_drift": 0.0,
+    "claim_support": 1.0
   },
-  "explanation": "Mean retrieval similarity 0.41 is below 0.50..."
+  "explanation": "The agent/tool contract failed...",
+  "explainer_model": "none"
 }
 ```
 
@@ -95,29 +168,47 @@ debugai.analyze(
 ```python Minimal
 from debugai import analyze
 
-result = analyze(prompt="...", output="...")
-print(result["healthy"])          # True or False
-print(result["primary"])          # None if healthy
+result = analyze(prompt="...", output="...", explain_with_llm=False)
+print(result["healthy"])
+print(result["primary"])
 ```
 
-```python Full RAG
+```python RAG grounding
 result = analyze(
     prompt="What is the cancellation policy?",
     output="You can cancel anytime for a full refund.",
     chunks=retrieved_docs,
     similarity_scores=scores,
+    retrieval_query="cancellation refund policy",
     temperature=0.7,
     context_window=8192,
+    explain_with_llm=False,
 )
 ```
 
-```python With LLM judge
+```python Tool contract
 result = analyze(
-    prompt=user_query,
-    output=llm_response,
-    system_prompt=tutor_rules,
-    judge=True,
-    openai_api_key="sk-...",  # or set OPENAI_API_KEY env var
+    prompt="Search current shipping cutoff.",
+    output="The cutoff is 5pm today.",
+    tools_expected=["search"],
+    tool_calls=[],
+    explain_with_llm=False,
+)
+```
+
+```python Schema validation
+result = analyze(
+    prompt="Classify this ticket.",
+    output='{"status":"maybe"}',
+    response_schema={
+        "type": "object",
+        "required": ["status", "answer"],
+        "properties": {
+            "status": {"type": "string", "enum": ["ok", "error"]},
+            "answer": {"type": "string"}
+        }
+    },
+    explain_with_llm=False,
 )
 ```
 </CodeGroup>

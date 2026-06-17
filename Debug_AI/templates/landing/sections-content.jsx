@@ -14,10 +14,11 @@ function HowItWorks() {
       <div className="shell">
         <div className="section__head reveal">
           <span className="ds-overline">How it works</span>
-          <h2>One wrap. Every failure caught.</h2>
+          <h2>One wrap. Every failure traced.</h2>
           <p>
             Detection is deterministic — no LLM, no guessing. The same input always
-            produces the same diagnosis. Pin it in CI, diff it across deploys.
+            produces the same diagnosis. Pin it in CI, inspect the pipeline stage,
+            and diff detector behavior across deploys.
           </p>
         </div>
         <div className="flow reveal">
@@ -46,8 +47,8 @@ function HowItWorks() {
             <svg className="stage__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 3 2 20h20L12 3Z" /><path d="M12 10v4" /><path d="M12 17.5h.01" />
             </svg>
-            <h3>8 signals, 9 detectors</h3>
-            <p>A deterministic engine computes 8 metrics — overlap, entity coverage, similarity, contradiction, variance — then runs 9 failure detectors ranked by confidence.</p>
+            <h3>Signals + detectors</h3>
+            <p>A deterministic engine computes core grounding metrics plus pipeline and security signals, then runs detectors for retrieval, grounding, schema, tools, citations, prompts, runtime, and safety.</p>
             <div className="stage__vis" style={{ display: "grid", gap: "8px" }}>
               <SignalIndicator name="retrieval.similarity" value="0.41" confidence={0.82} status="critical" />
               <SignalIndicator name="context.overlap" value="0.11" confidence={0.9} status="critical" />
@@ -61,8 +62,8 @@ function HowItWorks() {
             <svg className="stage__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
               <path d="m14.7 6.3 3 3M3 21l3.5-1 11-11a2.1 2.1 0 0 0-3-3l-11 11L3 21Z" /><path d="M15 7 9 13" />
             </svg>
-            <h3>Named failure + specific fix</h3>
-            <p>Not "something went wrong." You get the failure type, a confidence score, the signal evidence, and an exact fix — re-chunking strategy, temperature cap, grounding rule.</p>
+            <h3>Named failure + verified fix</h3>
+            <p>Not "something went wrong." You get the failure type, confidence, evidence, a fix agent proposal, and a regression artifact you can keep in CI.</p>
             <div className="stage__vis" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <div style={{ fontFamily: "var(--font-mono)", fontSize: "2.2rem", fontWeight: 700, color: "var(--amber-base)", lineHeight: 1 }}>95<span style={{ fontSize: "1rem" }}>%</span></div>
               <div>
@@ -83,23 +84,30 @@ function CodeSection() {
   const T = (c, t) => React.createElement("span", { className: c }, t);
 
   const wrapLines = [
-    [T("tok-com", "# Wrap once — every call auto-diagnosed in the background")],
-    [T("tok-key", "from "), T("tok-fn", "openai"), T("tok-key", " import "), "OpenAI"],
-    [T("tok-key", "import "), T("tok-fn", "debugai")],
+    [T("tok-com", "# Diagnose a bad LLM output and keep the regression artifact")],
+    [T("tok-key", "from "), T("tok-fn", "debugai"), T("tok-key", " import "), "debug_report, analyze_pipeline"],
     [""],
-    ["client = ", T("tok-fn", "debugai"), ".wrap_llm(OpenAI(),"],
-    ["    on_diagnosis=", T("tok-key", "lambda"), " d: alert(d) ", T("tok-com", "# your sink")],
-    [")"],
-    [""],
-    [T("tok-com", "# Or run directly on any failing call")],
-    ["result = ", T("tok-fn", "debugai"), ".analyze("],
+    ["report = debug_report("],
     ["    prompt=user_prompt,"],
-    ["    output=llm_output,"],
+    ["    output=bad_output,"],
     ["    chunks=retrieved_docs,"],
+    ["    similarity_scores=scores,"],
     [")"],
+    [T("tok-key", "print"), "(report[", T("tok-str", '"failure"'), "])              ", T("tok-com", "# hallucination")],
+    [T("tok-key", "print"), "(report[", T("tok-str", '"regression_artifact"'), "])  ", T("tok-com", "# pytest skeleton")],
     [""],
-    [T("tok-key", "print"), "(result[", T("tok-str", '"primary"'), "][", T("tok-str", '"failure"'), "])  ", T("tok-com", "# retrieval_failure")],
-    [T("tok-key", "print"), "(result[", T("tok-str", '"primary"'), "][", T("tok-str", '"fix"'), "])     ", T("tok-com", "# exact fix string")],
+    [T("tok-com", "# Trace the pipeline stage that failed")],
+    ["pipeline = analyze_pipeline(stages, user_prompt=user_prompt)"],
+    [T("tok-key", "print"), "(pipeline[", T("tok-str", '"primary"'), "][", T("tok-str", '"stage_id"'), "])  ", T("tok-com", "# retrieval")],
+  ];
+
+  const capabilities = [
+    ["Failure diagnosis", "Names retrieval, grounding, schema, tool, citation, runtime, prompt, and safety failures with confidence and evidence."],
+    ["Pipeline trace analysis", "Pinpoints whether query rewrite, retrieval, context packing, tool execution, generation, or validation failed first."],
+    ["Prompt vulnerability audit", "Finds weak rules, conflicting priorities, missing RAG boundaries, tool abuse paths, and patched prompt rules."],
+    ["Corpus evals", "Score labeled failure corpora and fail CI if detector accuracy drops."],
+    ["Fix artifacts", "Returns fix-agent output plus portable regression tests for the bad case."],
+    ["Feedback calibration", "Track accepted diagnoses and fix success so confidence can improve from real usage."],
   ];
 
   return (
@@ -107,8 +115,8 @@ function CodeSection() {
       <div className="shell">
         <div className="section__head reveal">
           <span className="ds-overline">Get started</span>
-          <h2>Two lines. Full coverage.</h2>
-          <p>No config files. No dashboards to set up first. Works with OpenAI, Anthropic, Gemini, Ollama, Groq, and any OpenAI-compatible endpoint.</p>
+          <h2>SDK first. Dashboard second.</h2>
+          <p>Start locally with Python. Add the dashboard when you want stored diagnoses, traces, sessions, prompt audits, and account-scoped API tokens.</p>
         </div>
         <div className="code-block-wrap reveal">
           <CodeBlock filename="your_app.py" language="python" showLineNumbers={false}>
@@ -123,9 +131,17 @@ function CodeSection() {
         </div>
         <div className="install-badges reveal">
           <Badge variant="trace" dot>pip install debugerai</Badge>
-          <Badge variant="ok" dot>214 tests</Badge>
+          <Badge variant="ok" dot>265 tests</Badge>
           <Badge variant="neutral" dot>MIT license</Badge>
           <Badge variant="neutral" dot>Python 3.11+</Badge>
+        </div>
+        <div className="usecases-grid reveal" style={{ marginTop: "var(--space-8)" }}>
+          {capabilities.map(([title, body]) => (
+            <div key={title} className="usecase-card">
+              <h3 className="usecase-card__title">{title}</h3>
+              <p className="usecase-card__what">{body}</p>
+            </div>
+          ))}
         </div>
       </div>
     </section>
@@ -135,32 +151,46 @@ function CodeSection() {
 /* ── Use cases ────────────────────────────────────────────────────────────── */
 const USE_CASES = [
   {
-    icon: "🗂️",
+    icon: "RAG",
     title: "RAG / document Q&A",
     problem: "Your chatbot answers confidently from outside the retrieved context — inventing policy details, citing non-existent clauses.",
     what: "DebugAI catches hallucination (0.95 confidence) and tells you exactly which retrieved chunks failed to ground the output.",
     fix: "Add grounding constraints to the system prompt. Re-chunk with entity-aware strategy.",
   },
   {
-    icon: "🎓",
+    icon: "EDU",
     title: "Socratic tutors / education AI",
     problem: "Your tutor reveals 80% of the answer in the first response, or asks the same guiding question reworded.",
     what: "The instruction-adherence judge scores the output against the system prompt's pedagogical rules.",
     fix: "Strengthened system prompt with strict Socratic constraints — verified by re-running and re-judging.",
   },
   {
-    icon: "💬",
+    icon: "SUP",
     title: "Customer support bots",
     problem: "The bot gives the generic return policy when the user asked specifically about electronics exceptions.",
     what: "Retrieval failure detected: similarity 0.41, entity coverage 0.00 — the retriever returned irrelevant chunks.",
     fix: "Re-embed with domain-specific chunking. Add an 'information not found' fallback guard.",
   },
   {
-    icon: "🛠️",
+    icon: "DEV",
     title: "Code review copilots",
     problem: "The same code snippet gets 'critical' severity in one run and 'medium' the next — inconsistent across reviewers.",
     what: "Prompt brittleness detected: variance 0.60 with temperature 0.8.",
     fix: "Lower temperature to 0.2. Add severity rubric to system prompt with few-shot examples.",
+  },
+  {
+    icon: "SEC",
+    title: "Prompt security reviews",
+    problem: "A system prompt says to always answer, use any tool when needed, and handle sensitive customer data carefully.",
+    what: "Prompt audit detects priority conflicts, missing approval gates, weak wording, missing secret handling, and untrusted RAG boundaries.",
+    fix: "Append deterministic security rules or run dynamic attack probes against your app before shipping.",
+  },
+  {
+    icon: "CI",
+    title: "Regression gates",
+    problem: "A detector improvement accidentally weakens retrieval or tool-failure classification.",
+    what: "Corpus evals compare expected failures against actual diagnoses and produce a confusion matrix.",
+    fix: "Run `debugai eval failures.json` in CI and keep fix-agent regression artifacts beside repaired bugs.",
   },
 ];
 

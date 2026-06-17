@@ -1,0 +1,73 @@
+---
+title: debug_report()
+description: Return the product-level debugging artifact for one failing call.
+---
+
+`debug_report()` wraps `analyze()` and adds the pieces teams need to act on a
+failure: evidence bullets, fix-agent output, and a portable regression artifact.
+
+## Signature
+
+```python
+debugai.debug_report(
+    *,
+    run_fix: bool = True,
+    rerun: Callable | None = None,
+    explain_with_llm: bool = False,
+    **case,
+) -> dict
+```
+
+`case` accepts the same capture fields as `analyze()`: `prompt`, `output`,
+`system_prompt`, `chunks`, `similarity_scores`, `retrieval_query`,
+`temperature`, `context_window`, `tool_calls`, `tools_expected`,
+`response_schema`, token usage, latency, and model metadata.
+
+## Example
+
+```python
+from debugai import debug_report, format_debug_report
+
+report = debug_report(
+    prompt="Answer with citations: what is the return window?",
+    output="The return window is 30 days [3].",
+    system_prompt="Cite every factual claim with retrieved chunk numbers.",
+    chunks=["Returns are available within 30 days with a receipt."],
+    similarity_scores=[0.91],
+    run_fix=True,
+)
+
+print(format_debug_report(report))
+print(report["regression_artifact"])
+```
+
+## Return value
+
+```json
+{
+  "status": "failing",
+  "failure": "citation_failure",
+  "confidence": 0.72,
+  "severity": "warning",
+  "root_cause": "The response has unsupported citation behavior...",
+  "evidence": ["Citation(s) [3] do not map to retrieved chunks."],
+  "fix": "Force citations to use retrieved chunk IDs...",
+  "diagnosis": {},
+  "fix_report": {
+    "verdict": "verified",
+    "agent": "Citation Verifier"
+  },
+  "regression_artifact": {
+    "expected_before": {"healthy": false},
+    "expected_after": {"healthy": true}
+  }
+}
+```
+
+## Fix verification
+
+Pass `rerun(system_prompt, user_prompt, chunks, temperature) -> output` when you
+want the selected fix agent to re-run the model and verify that the detector
+clears. Without `rerun`, DebugAI still returns the proposal and regression
+artifact, but the verdict can be `mitigated`, `escalated`, or `pending_rerun`
+depending on the failure type.

@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>DebugAI — Documentation</title>
-<meta name="description" content="DebugAI documentation for SDK usage, dashboard workflows, traces, API tokens, deployment, and troubleshooting." />
+<meta name="description" content="DebugAI documentation for SDK diagnosis, prompt audit, pipeline traces, dashboard workflows, API tokens, deployment, and troubleshooting." />
 <link rel="stylesheet" href="/ds/styles.css" />
 <link rel="stylesheet" href="/static/docs.css" />
 </head>
@@ -32,24 +32,26 @@
         <p class="docs-kicker">Documentation</p>
         <h1>Use DebugAI locally, in your app, or with the hosted dashboard.</h1>
         <p>
-          DebugAI names LLM failures, shows the evidence, and recommends a fix.
-          The local SDK works without an account. The hosted dashboard stores
-          traces, diagnoses, sessions, API tokens, and account settings.
+          DebugAI names LLM failures, shows the evidence, locates the failing
+          pipeline stage, audits prompt vulnerabilities, and returns a fix
+          artifact. The local SDK works without an account. The hosted dashboard
+          stores traces, diagnoses, sessions, API tokens, and account settings.
         </p>
       </div>
       <div class="docs-quick">
         <h2>Fastest start</h2>
         <pre><code>pip install debugerai</code></pre>
-        <pre><code>from debugai import analyze
+        <pre><code>from debugai import debug_report
 
-result = analyze(
+result = debug_report(
     prompt="What is the refund policy?",
     output="Refunds are always 90 days.",
     chunks=["Electronics can be returned within 30 days."],
     similarity_scores=[0.72],
 )
 
-print(result["primary"])</code></pre>
+print(result["failure"])
+print(result["fix"])</code></pre>
       </div>
     </div>
   </header>
@@ -58,6 +60,8 @@ print(result["primary"])</code></pre>
     <aside class="docs-toc" aria-label="Documentation sections">
       <a href="#concepts">Core Concepts</a>
       <a href="#local-sdk">Local SDK</a>
+      <a href="#prompt-audit">Prompt Audit</a>
+      <a href="#pipeline">Pipeline Debugging</a>
       <a href="#wrap">Wrap An LLM</a>
       <a href="#hosted">Hosted Dashboard</a>
       <a href="#tokens">API Tokens</a>
@@ -79,15 +83,27 @@ print(result["primary"])</code></pre>
           </article>
           <article>
             <h3>Signals</h3>
-            <p>Deterministic measurements such as retrieval similarity, context overlap, entity coverage, contradiction, variance, latency, token ratio, and context ratio.</p>
+            <p>Deterministic measurements such as retrieval similarity, context overlap, entity coverage, contradiction, variance, latency, token ratio, context ratio, query drift, claim support, and source conflict.</p>
           </article>
           <article>
             <h3>Detectors</h3>
-            <p>Rules that map signals into failure names like retrieval failure, hallucination, schema violation, tool call failure, prompt brittleness, or ambiguity.</p>
+            <p>Rules that map signals into failure names like retrieval failure, hallucination, schema violation, tool call failure, citation failure, prompt injection, prompt brittleness, or ambiguity.</p>
           </article>
           <article>
             <h3>Fix</h3>
             <p>Actionable guidance, and optionally a fix-agent report that proposes a change, runs a regression check, and re-diagnoses the result.</p>
+          </article>
+          <article>
+            <h3>Prompt Audit</h3>
+            <p>Static and optional dynamic checks for weak prompt rules, answer/safety conflicts, missing trust boundaries, tool approval gaps, secrets, and schema enforcement.</p>
+          </article>
+          <article>
+            <h3>Pipeline Trace</h3>
+            <p>Stage-level diagnosis for query rewrite, retrieval, context packing, tool execution, generation, and validation.</p>
+          </article>
+          <article>
+            <h3>Regression Artifact</h3>
+            <p>A portable before/after expectation that can be saved in CI or attached to a bug report after applying a fix.</p>
           </article>
         </div>
       </section>
@@ -111,10 +127,62 @@ report = debug_report(
 print(report["failure"])
 print(report["evidence"])
 print(report["fix"])</code></pre>
+        <pre><code>debugai report --example tool_call_failure --json
+debugai audit-prompt --system @prompt.txt --use-case "support RAG bot" --dynamic
+debugai pipeline trace.json --json
+debugai eval failures.json</code></pre>
         <div class="docs-callout">
           <b>No account needed:</b> local calls do not send data to the hosted
           dashboard unless you explicitly configure a trace sink.
         </div>
+      </section>
+
+      <section id="prompt-audit" class="docs-section">
+        <h2>Audit Prompt Vulnerabilities</h2>
+        <p>
+          Prompt audit checks a system prompt before shipping. It finds weak
+          language, answering rules that can override safety or approval gates,
+          missing external-content boundaries, tool-use risk, secret-handling
+          gaps, schema gaps, and optional dynamic attack results.
+        </p>
+        <pre><code>from debugai import audit_prompt
+
+audit = audit_prompt(
+    system_prompt=system_prompt,
+    use_case="Customer support RAG agent that can issue refunds",
+    tools=["refund_order", "send_email"],
+    retrieves_external_content=True,
+    handles_secrets=True,
+    high_risk_actions=["issue refunds", "send customer email"],
+    dynamic=True,
+)
+
+print(audit["grade"], audit["risk_score"])
+print(audit["issues"])
+print(audit["patched_prompt"])</code></pre>
+        <p>
+          A patched prompt is available without an API key. With no LLM key,
+          DebugAI builds it deterministically from the issues it found.
+        </p>
+      </section>
+
+      <section id="pipeline" class="docs-section">
+        <h2>Debug Pipeline Traces</h2>
+        <p>
+          Use pipeline diagnosis when a final answer is bad and you need the
+          first failing stage: rewrite, retrieval, tool execution, generation,
+          or validation.
+        </p>
+        <pre><code>from debugai import analyze_pipeline
+
+trace = analyze_pipeline([
+    {"id": "rewrite", "kind": "query_rewrite", "input": user_prompt, "output": retrieval_query},
+    {"id": "retrieval", "kind": "retrieval", "input": retrieval_query, "chunks": chunks, "similarity_scores": scores},
+    {"id": "generation", "kind": "generation", "output": llm_output, "chunks": chunks, "similarity_scores": scores},
+], user_prompt=user_prompt, system_prompt=system_prompt)
+
+print(trace["primary"]["stage_id"])
+print(trace["primary"]["failure"])</code></pre>
       </section>
 
       <section id="wrap" class="docs-section">
@@ -211,16 +279,16 @@ with session("support-ticket-42"):
       <section id="playground" class="docs-section">
         <h2>Playground</h2>
         <p>
-          The Playground is a non-storing editor for testing a prompt, output,
-          chunks, similarity scores, temperature, and system prompt. Use it to
-          understand why a case fails before wiring the SDK into your app.
+          The Playground is a non-storing workbench with Output Debugger and
+          Prompt Audit modes. Use it to understand why a bad output failed, or
+          to harden a system prompt before wiring the SDK into your app.
         </p>
         <ol>
           <li>Open <a href="/playground">Playground</a>.</li>
-          <li>Paste the user prompt and bad LLM output.</li>
+          <li>Choose <b>Output debugger</b> to paste a user prompt and bad LLM output.</li>
           <li>Add retrieved chunks and similarity scores for RAG cases.</li>
           <li>Review the primary diagnosis and signal bars.</li>
-          <li>Apply a proposed fix to the system prompt and re-check.</li>
+          <li>Choose <b>Prompt audit</b> to scan system prompt vulnerabilities and get a patched prompt.</li>
         </ol>
       </section>
 

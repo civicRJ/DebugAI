@@ -241,6 +241,29 @@ class AuthStore:
                 {"n": limit}).fetchall()
         return [{"id": r.id, "email": r.email, "name": r.name, "created_at": r.created_at} for r in rows]
 
+    def activation_stats(self) -> dict:
+        with self._engine.connect() as conn:
+            total_tokens = conn.execute(text("SELECT COUNT(*) FROM api_tokens")).scalar() or 0
+            used_tokens = conn.execute(text(
+                "SELECT COUNT(*) FROM api_tokens WHERE last_used IS NOT NULL"
+            )).scalar() or 0
+            users_with_tokens = conn.execute(text(
+                "SELECT COUNT(DISTINCT user_id) FROM api_tokens"
+            )).scalar() or 0
+            users_with_used_tokens = conn.execute(text(
+                "SELECT COUNT(DISTINCT user_id) FROM api_tokens WHERE last_used IS NOT NULL"
+            )).scalar() or 0
+            active_sessions = conn.execute(text(
+                "SELECT COUNT(DISTINCT user_id) FROM sessions WHERE expires_at > :now"
+            ), {"now": time.time()}).scalar() or 0
+        return {
+            "api_tokens": total_tokens,
+            "used_api_tokens": used_tokens,
+            "users_with_api_tokens": users_with_tokens,
+            "users_with_used_api_tokens": users_with_used_tokens,
+            "active_session_users": active_sessions,
+        }
+
     def register(self, email: str, name: str, password: str) -> dict:
         email = (email or "").strip().lower()
         name = (name or "").strip()

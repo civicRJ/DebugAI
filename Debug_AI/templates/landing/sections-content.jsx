@@ -192,25 +192,107 @@ function UseCases() {
 /* ── CTA ──────────────────────────────────────────────────────────────────── */
 function CTA() {
   const { Button } = window.DesignSystem_90c6f1;
+  const [form, setForm] = React.useState({
+    email: "",
+    name: "",
+    company: "",
+    role: "RAG / agent builder",
+    use_case: "",
+    website: "",
+  });
+  const [state, setState] = React.useState({ busy: false, ok: false, error: "" });
+
+  function update(key) {
+    return (event) => setForm((prev) => ({ ...prev, [key]: event.target.value }));
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    if (!form.email.trim()) {
+      setState({ busy: false, ok: false, error: "Enter your work email." });
+      return;
+    }
+    setState({ busy: true, ok: false, error: "" });
+    try {
+      const res = await fetch("/api/beta/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, source: "landing-cta" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Could not join the beta.");
+      setState({ busy: false, ok: true, error: "" });
+    } catch (err) {
+      setState({ busy: false, ok: false, error: err.message || "Could not join the beta." });
+    }
+  }
+
   return (
     <section className="section" id="cta">
       <div className="shell">
-        <div className="cta reveal">
-          <h2>Stop guessing. Start diagnosing.</h2>
-          <p>
-            Free for solo developers. No credit card. Takes 2 minutes to see your first diagnosis.
-          </p>
-          <div className="cta__actions">
-            <Button variant="primary" size="lg" onClick={() => window.location.href = "/register"}>
-              Start debugging free
-            </Button>
-            <Button variant="secondary" size="lg" onClick={() => window.location.href = "/pricing"}>
-              See pricing
-            </Button>
+        <div className="cta cta--beta reveal">
+          <div className="cta__copy">
+            <span className="ds-overline">Private beta</span>
+            <h2>Send one failing LLM trace. Get the root cause.</h2>
+            <p>
+              DebugAI is onboarding teams building RAG apps, support bots, and AI agents.
+              Join the beta and we will help diagnose your first production-style failure.
+            </p>
+            <div className="cta__actions">
+              <Button variant="secondary" size="lg" onClick={() => window.location.href = "/register"}>
+                Create account
+              </Button>
+              <Button variant="ghost" size="lg" onClick={() => window.location.href = "/docs"}>
+                Read docs
+              </Button>
+            </div>
+            <p className="cta__install">
+              SDK: <code>pip install debugerai</code>
+            </p>
           </div>
-          <p style={{ marginTop: "var(--space-4)", fontSize: "var(--text-sm)", color: "var(--text-tertiary)" }}>
-            Or install the SDK: <code style={{ fontFamily: "var(--font-mono)", color: "var(--amber-300)" }}>pip install debugerai</code>
-          </p>
+          <form className="beta-form" onSubmit={submit}>
+            <input
+              aria-label="Website"
+              className="beta-form__hp"
+              value={form.website}
+              onChange={update("website")}
+              tabIndex="-1"
+              autoComplete="off"
+            />
+            <label>
+              Work email
+              <input type="email" value={form.email} onChange={update("email")} placeholder="you@company.com" autoComplete="email" required />
+            </label>
+            <div className="beta-form__row">
+              <label>
+                Name
+                <input value={form.name} onChange={update("name")} placeholder="Your name" autoComplete="name" />
+              </label>
+              <label>
+                Company
+                <input value={form.company} onChange={update("company")} placeholder="Company" autoComplete="organization" />
+              </label>
+            </div>
+            <label>
+              Role
+              <select value={form.role} onChange={update("role")}>
+                <option>RAG / agent builder</option>
+                <option>Founder / engineering lead</option>
+                <option>AI product engineer</option>
+                <option>ML platform / infra</option>
+                <option>Other</option>
+              </select>
+            </label>
+            <label>
+              What are you trying to debug?
+              <textarea value={form.use_case} onChange={update("use_case")} placeholder="Example: support bot gives wrong policy answers even when retrieval looks good." rows="3" />
+            </label>
+            {state.error && <p className="beta-form__error" role="alert">{state.error}</p>}
+            {state.ok && <p className="beta-form__ok" role="status">You are on the beta list. We will follow up with a trace-debugging slot.</p>}
+            <button className="beta-form__submit" type="submit" disabled={state.busy || state.ok}>
+              {state.ok ? "Joined beta" : state.busy ? "Joining..." : "Join beta"}
+            </button>
+          </form>
         </div>
       </div>
     </section>

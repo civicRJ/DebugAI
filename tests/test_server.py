@@ -7,13 +7,14 @@ os.environ["DEBUGAI_NO_SEED"] = "1"  # don't auto-seed (model load) during tests
 import pytest
 from fastapi.testclient import TestClient
 
-from server.app import AnalyzeRequest, SESSION_COOKIE, app, auth_store, store, trace_store
+from server.app import AnalyzeRequest, SESSION_COOKIE, app, auth_store, lead_store, store, trace_store
 
 
 @pytest.fixture()
 def client(tmp_path):
     store.clear()
     trace_store.clear()
+    lead_store.clear()
     auth_store.clear()
     c = TestClient(app)
     with c:
@@ -24,7 +25,55 @@ def client(tmp_path):
         yield c
     store.clear()
     trace_store.clear()
+    lead_store.clear()
     auth_store.clear()
+
+
+def test_beta_lead_capture_is_public_and_dedupes(client):
+    r = client.post("/api/beta/leads", json={
+        "email": "Founder@Example.com",
+        "name": "Founder",
+        "company": "Acme AI",
+        "role": "Founder / engineering lead",
+        "use_case": "RAG support bot gives wrong policy answers.",
+    })
+    assert r.status_code == 200
+    assert r.json()["lead"]["email"] == "founder@example.com"
+
+    r2 = client.post("/api/beta/leads", json={
+        "email": "founder@example.com",
+        "company": "Acme Labs",
+        "role": "RAG / agent builder",
+    })
+    assert r2.status_code == 200
+    leads = lead_store.list()
+    assert len(leads) == 1
+    assert leads[0]["company"] == "Acme Labs"
+
+
+def test_admin_stats_include_traction_funnel(client, monkeypatch):
+    monkeypatch.setenv("DEBUGAI_STAFF", "test@example.com")
+    client.post("/api/beta/leads", json={
+        "email": "lead@example.com",
+        "role": "AI product engineer",
+        "use_case": "Agent tool calls fail silently.",
+    })
+    client.post("/api/account/tokens", json={"name": "local-sdk"})
+    client.post("/api/analyze", json={
+        "prompt": "What is the refund policy?",
+        "output": "Full cash refund within 90 days.",
+        "chunks": ["Store hours are 9 to 5."],
+        "similarity_scores": [0.2],
+        "temperature": 0.1,
+    })
+
+    r = client.get("/api/admin/stats")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["leads"]["total"] == 1
+    assert body["funnel"]["leads"] == 1
+    assert body["activation"]["users_with_api_tokens"] == 1
+    assert body["activation"]["activated_product_users"] == 1
 
 
 def test_analyze_stores_and_returns_ui(client):

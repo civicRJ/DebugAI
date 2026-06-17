@@ -16,6 +16,7 @@ debugai_architecture_v3.pdf
 
 # Runtime state (regenerated on demand)
 server/diagnoses.json
+server/leads.json
 server/thresholds_state.json
 server/thresholds_*.json
 server/traces.json

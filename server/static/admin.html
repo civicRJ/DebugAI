@@ -42,25 +42,46 @@ async function load() {
   const r = await fetch("/api/admin/stats");
   if (!r.ok) { document.getElementById("admin-root").innerHTML = '<div class="error-banner">Access denied or not logged in.</div>'; return; }
   const d = await r.json();
+  const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
   const FAILURE_LABELS = { retrieval_failure:"Retrieval failure", hallucination:"Hallucination", context_overflow:"Context overflow", entity_gap:"Entity gap", prompt_brittleness:"Prompt brittleness", healthy:"Healthy" };
   const byF = d.diagnoses.by_failure || {};
   const maxF = Math.max(1, ...Object.values(byF));
   const bars = Object.entries(byF).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`
     <div class="admin-bar">
-      <span class="admin-bar__label">${FAILURE_LABELS[k]||k}</span>
+      <span class="admin-bar__label">${esc(FAILURE_LABELS[k]||k)}</span>
       <div class="admin-bar__track"><div class="admin-bar__fill" style="width:${(v/maxF)*100}%"></div></div>
       <span class="admin-bar__count">${v}</span>
     </div>`).join("");
-  const userRows = (d.recent_users||[]).map(u=>`<tr><td>${u.name}</td><td>${u.email}</td><td>${new Date(u.created_at*1000).toLocaleDateString()}</td></tr>`).join("");
+  const userRows = (d.recent_users||[]).map(u=>`<tr><td>${esc(u.name)}</td><td>${esc(u.email)}</td><td>${new Date(u.created_at*1000).toLocaleDateString()}</td></tr>`).join("");
+  const leadRows = ((d.leads && d.leads.recent) || []).map(l=>`
+    <tr>
+      <td>${esc(l.email)}</td>
+      <td>${esc(l.name || "-")}</td>
+      <td>${esc(l.company || "-")}</td>
+      <td>${esc(l.role || "-")}</td>
+      <td>${esc(l.use_case || "-")}</td>
+    </tr>`).join("");
   document.getElementById("admin-root").innerHTML = `
     <div class="admin-grid">
+      <div class="admin-card"><div class="admin-card__val">${d.funnel.leads}</div><div class="admin-card__label">Beta leads</div></div>
       <div class="admin-card"><div class="admin-card__val">${d.users}</div><div class="admin-card__label">Total users</div></div>
+      <div class="admin-card"><div class="admin-card__val">${d.activation.users_with_api_tokens}</div><div class="admin-card__label">Token users</div></div>
+      <div class="admin-card"><div class="admin-card__val">${d.activation.activated_product_users}</div><div class="admin-card__label">Activated users</div></div>
       <div class="admin-card"><div class="admin-card__val">${d.diagnoses.total}</div><div class="admin-card__label">Diagnoses</div></div>
       <div class="admin-card"><div class="admin-card__val">${d.diagnoses.failing}</div><div class="admin-card__label">Failing</div></div>
       <div class="admin-card"><div class="admin-card__val">${d.traces.traces||0}</div><div class="admin-card__label">Traces</div></div>
       <div class="admin-card"><div class="admin-card__val">$${(d.traces.cost_usd||0).toFixed(4)}</div><div class="admin-card__label">Est. cost</div></div>
     </div>
+    <div class="admin-section"><h2>Traction funnel</h2>
+      <div class="admin-bar"><span class="admin-bar__label">Beta leads</span><div class="admin-bar__track"><div class="admin-bar__fill" style="width:100%"></div></div><span class="admin-bar__count">${d.funnel.leads}</span></div>
+      <div class="admin-bar"><span class="admin-bar__label">Accounts</span><div class="admin-bar__track"><div class="admin-bar__fill" style="width:${Math.min(100, (d.funnel.accounts / Math.max(1, d.funnel.leads)) * 100)}%"></div></div><span class="admin-bar__count">${d.funnel.accounts}</span></div>
+      <div class="admin-bar"><span class="admin-bar__label">API token users</span><div class="admin-bar__track"><div class="admin-bar__fill" style="width:${Math.min(100, (d.funnel.users_with_api_tokens / Math.max(1, d.funnel.leads)) * 100)}%"></div></div><span class="admin-bar__count">${d.funnel.users_with_api_tokens}</span></div>
+      <div class="admin-bar"><span class="admin-bar__label">Activated users</span><div class="admin-bar__track"><div class="admin-bar__fill" style="width:${Math.min(100, (d.funnel.activated_product_users / Math.max(1, d.funnel.leads)) * 100)}%"></div></div><span class="admin-bar__count">${d.funnel.activated_product_users}</span></div>
+    </div>
     <div class="admin-section"><h2>Failure breakdown</h2>${bars}</div>
+    <div class="admin-section"><h2>Recent beta leads</h2>
+      <table class="admin-table"><thead><tr><th>Email</th><th>Name</th><th>Company</th><th>Role</th><th>Use case</th></tr></thead><tbody>${leadRows}</tbody></table>
+    </div>
     <div class="admin-section"><h2>Recent signups</h2>
       <table class="admin-table"><thead><tr><th>Name</th><th>Email</th><th>Joined</th></tr></thead><tbody>${userRows}</tbody></table>
     </div>`;

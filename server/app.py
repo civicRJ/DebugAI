@@ -44,7 +44,7 @@ from server.db import status as db_status
 from server.email import send_email_verification, send_password_reset, send_welcome
 from server.paths import data_path
 from server.security import install as install_security
-from server.store import DiagnosisStore, TraceStore
+from server.store import DiagnosisStore, LeadStore, TraceStore
 from server.ui_adapter import to_card
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +55,7 @@ SESSION_COOKIE = "debugai_session"
 
 store = DiagnosisStore()
 trace_store = TraceStore()
+lead_store = LeadStore()
 auth_store = AuthStore()
 
 # Per-user adaptive calibration: one ThresholdStore per account (§7.2).
@@ -217,6 +218,33 @@ class AccountUpdate(BaseModel):
     email: str | None = Field(default=None, max_length=320)
     new_password: str | None = Field(default=None, max_length=200)
     current_password: str = Field(max_length=200)
+
+
+class BetaLeadIn(BaseModel):
+    email: str = Field(max_length=320)
+    name: str | None = Field(default="", max_length=120)
+    company: str | None = Field(default="", max_length=120)
+    role: str | None = Field(default="", max_length=80)
+    use_case: str | None = Field(default="", max_length=800)
+    source: str | None = Field(default="landing", max_length=80)
+    website: str | None = Field(default=None, max_length=200)
+
+    @field_validator("email")
+    @classmethod
+    def valid_email(cls, value: str) -> str:
+        email = (value or "").strip().lower()
+        if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+            raise ValueError("Enter a valid email address.")
+        return email
+
+
+@app.post("/api/beta/leads")
+def api_beta_lead(body: BetaLeadIn):
+    # Honeypot: preserve a generic success response for bots.
+    if body.website:
+        return {"ok": True}
+    lead = lead_store.add(body.model_dump())
+    return {"ok": True, "lead": {"email": lead["email"]}}
 
 
 @app.post("/api/auth/register")
@@ -887,8 +915,26 @@ def api_admin_stats(user: dict = Depends(require_user)):
         raise HTTPException(status_code=403, detail="Staff only")
     diag_stats = store.stats()
     trace_stats = trace_store.stats()
+    leads = lead_store.stats()
+    activation = auth_store.activation_stats()
+    diagnosis_users = {r.get("owner") for r in store.list(limit=500) if r.get("owner")}
+    trace_users = {t.get("owner") for t in trace_store.list(limit=500) if t.get("owner")}
+    activated_users = diagnosis_users | trace_users
     return {
         "users": auth_store.user_count(),
+        "leads": leads,
+        "activation": {
+            **activation,
+            "users_with_diagnoses": len(diagnosis_users),
+            "users_with_traces": len(trace_users),
+            "activated_product_users": len(activated_users),
+        },
+        "funnel": {
+            "leads": leads["total"],
+            "accounts": auth_store.user_count(),
+            "users_with_api_tokens": activation["users_with_api_tokens"],
+            "activated_product_users": len(activated_users),
+        },
         "diagnoses": diag_stats,
         "traces": trace_stats,
         "recent_users": auth_store.recent_users(10),

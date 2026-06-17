@@ -144,6 +144,56 @@
 .cta h2 { font-size: var(--text-h1); font-weight: var(--weight-bold); letter-spacing: var(--tracking-tight); margin: 0 0 var(--space-4); }
 .cta p { color: var(--text-secondary); font-size: var(--text-body-lg); margin: 0 0 var(--space-8); }
 .cta__actions { display: flex; justify-content: center; gap: var(--space-4); flex-wrap: wrap; }
+.cta--beta { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1fr); gap: var(--space-10); align-items: start; text-align: left; }
+.cta__copy .ds-overline { display: block; font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--amber-base); margin-bottom: var(--space-3); }
+.cta__copy p { margin-bottom: var(--space-6); }
+.cta--beta .cta__actions { justify-content: flex-start; margin-bottom: var(--space-5); }
+.cta__install { font-size: var(--text-sm) !important; color: var(--text-tertiary) !important; margin: 0 !important; }
+.cta__install code { font-family: var(--font-mono); color: var(--amber-300); }
+.beta-form { display: grid; gap: var(--space-4); background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-5); box-shadow: var(--shadow-inset); }
+.beta-form__row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+.beta-form label { display: grid; gap: var(--space-2); color: var(--text-secondary); font-size: var(--text-xs); font-weight: var(--weight-medium); }
+.beta-form input, .beta-form select, .beta-form textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 10px 12px;
+  outline: none;
+}
+.beta-form textarea { resize: vertical; min-height: 92px; line-height: 1.45; }
+.beta-form input:focus, .beta-form select:focus, .beta-form textarea:focus { border-color: var(--amber-base); box-shadow: 0 0 0 3px var(--amber-muted); }
+.beta-form__hp { position: absolute; left: -10000px; width: 1px !important; height: 1px; opacity: 0; pointer-events: none; }
+.beta-form__error, .beta-form__ok { margin: 0 !important; font-size: var(--text-sm) !important; line-height: 1.45; }
+.beta-form__error { color: var(--critical-bright) !important; }
+.beta-form__ok { color: var(--ok-bright) !important; }
+.beta-form__submit {
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--amber-base);
+  color: var(--accent-contrast);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  padding: 12px 16px;
+  cursor: pointer;
+}
+.beta-form__submit:hover:not(:disabled) { background: var(--amber-300); }
+.beta-form__submit:disabled { cursor: not-allowed; opacity: 0.72; }
+@media (max-width: 900px) {
+  .cta--beta { grid-template-columns: minmax(0, 1fr); gap: var(--space-8); padding: var(--space-8); }
+}
+@media (max-width: 520px) {
+  .cta { padding: var(--space-6); }
+  .cta h2 { font-size: var(--text-h2); }
+  .cta p { font-size: var(--text-body); }
+  .cta__actions { display: grid; grid-template-columns: 1fr; }
+  .cta__actions .btn { width: 100%; justify-content: center; }
+  .beta-form__row { grid-template-columns: 1fr; }
+}
 
 /* ── Footer ──────────────────────────────────────────────────────────────── */
 .footer { border-top: 1px solid var(--border-faint); padding: var(--space-8) 0; }

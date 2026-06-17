@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import threading
 from collections import Counter
 from pathlib import Path
@@ -19,6 +20,7 @@ from server.paths import data_path
 
 _DATA = data_path("diagnoses.json")
 _TRACES = data_path("traces.json")
+_LEADS = data_path("leads.json")
 _MAX = 500
 
 
@@ -188,6 +190,67 @@ class _JsonTraceStore:
         with self._lock:
             self._items = [t for t in self._items if t.get("owner") != owner]
             self._persist()
+
+    def clear(self) -> None:
+        with self._lock:
+            self._items = []
+            self._persist()
+
+
+class _JsonLeadStore:
+    def __init__(self, path: Path = _LEADS, maxlen: int = 2_000):
+        self._path = path
+        self._max = maxlen
+        self._lock = threading.Lock()
+        self._items: list[dict] = self._load()
+
+    def _load(self) -> list[dict]:
+        try:
+            data = json.loads(self._path.read_text())
+            return data[-self._max:] if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def _persist(self) -> None:
+        _atomic_write(self._path, json.dumps(self._items[-self._max:], indent=2))
+
+    def add(self, lead: dict) -> dict:
+        email = (lead.get("email") or "").strip().lower()
+        now = time.time()
+        record = {
+            "email": email,
+            "name": (lead.get("name") or "").strip(),
+            "company": (lead.get("company") or "").strip(),
+            "role": (lead.get("role") or "").strip(),
+            "use_case": (lead.get("use_case") or "").strip(),
+            "source": (lead.get("source") or "landing").strip()[:80],
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._lock:
+            for item in self._items:
+                if item.get("email") == email:
+                    item.update({k: v for k, v in record.items() if v or k in {"updated_at", "source"}})
+                    item["updated_at"] = now
+                    self._persist()
+                    return item
+            self._items.append(record)
+            del self._items[:-self._max]
+            self._persist()
+        return record
+
+    def list(self, limit: int = 100) -> list[dict]:
+        with self._lock:
+            return list(reversed(self._items))[:limit]
+
+    def stats(self) -> dict:
+        with self._lock:
+            items = list(self._items)
+        return {
+            "total": len(items),
+            "by_role": dict(Counter(i.get("role") or "unknown" for i in items)),
+            "recent": list(reversed(items))[:10],
+        }
 
     def clear(self) -> None:
         with self._lock:
@@ -446,6 +509,85 @@ class _PgTraceStore:
             conn.execute(self._text("DELETE FROM traces"))
 
 
+class _PgLeadStore:
+    def __init__(self):
+        from server.db import get_engine
+        from sqlalchemy import text
+        self._engine = get_engine()
+        self._text = text
+        self._init_schema()
+
+    def _init_schema(self) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(self._text("""
+                CREATE TABLE IF NOT EXISTS beta_leads (
+                    email      TEXT PRIMARY KEY,
+                    name       TEXT NOT NULL DEFAULT '',
+                    company    TEXT NOT NULL DEFAULT '',
+                    role       TEXT NOT NULL DEFAULT '',
+                    use_case   TEXT NOT NULL DEFAULT '',
+                    source     TEXT NOT NULL DEFAULT 'landing',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL
+                )
+            """))
+            conn.execute(self._text(
+                "CREATE INDEX IF NOT EXISTS beta_leads_updated ON beta_leads (updated_at DESC)"))
+
+    @staticmethod
+    def _row_to_dict(row) -> dict:
+        return {
+            "email": row.email, "name": row.name, "company": row.company,
+            "role": row.role, "use_case": row.use_case, "source": row.source,
+            "created_at": row.created_at, "updated_at": row.updated_at,
+        }
+
+    def add(self, lead: dict) -> dict:
+        now = time.time()
+        record = {
+            "email": (lead.get("email") or "").strip().lower(),
+            "name": (lead.get("name") or "").strip(),
+            "company": (lead.get("company") or "").strip(),
+            "role": (lead.get("role") or "").strip(),
+            "use_case": (lead.get("use_case") or "").strip(),
+            "source": (lead.get("source") or "landing").strip()[:80],
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._engine.begin() as conn:
+            conn.execute(self._text("""
+                INSERT INTO beta_leads (email,name,company,role,use_case,source,created_at,updated_at)
+                VALUES (:email,:name,:company,:role,:use_case,:source,:created_at,:updated_at)
+                ON CONFLICT (email) DO UPDATE SET
+                    name=excluded.name,
+                    company=excluded.company,
+                    role=excluded.role,
+                    use_case=excluded.use_case,
+                    source=excluded.source,
+                    updated_at=excluded.updated_at
+            """), record)
+        return record
+
+    def list(self, limit: int = 100) -> list[dict]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(self._text(
+                "SELECT * FROM beta_leads ORDER BY updated_at DESC LIMIT :limit"),
+                {"limit": limit}).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def stats(self) -> dict:
+        items = self.list(limit=2_000)
+        return {
+            "total": len(items),
+            "by_role": dict(Counter(i.get("role") or "unknown" for i in items)),
+            "recent": items[:10],
+        }
+
+    def clear(self) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(self._text("DELETE FROM beta_leads"))
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Public constructors — pick the right backend automatically
 # ──────────────────────────────────────────────────────────────────────────────
@@ -462,3 +604,10 @@ def TraceStore() -> "_JsonTraceStore | _PgTraceStore":
     if DATABASE_URL:
         return _PgTraceStore()
     return _JsonTraceStore()
+
+
+def LeadStore() -> "_JsonLeadStore | _PgLeadStore":
+    """Return the beta lead store for traction capture."""
+    if DATABASE_URL:
+        return _PgLeadStore()
+    return _JsonLeadStore()

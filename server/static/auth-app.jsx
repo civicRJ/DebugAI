@@ -810,7 +810,7 @@
   };
   const seg = window.location.pathname.replace(/\/+$/, "").split("/").pop();
   const View = VIEWS[seg] || Login;
-  ReactDOM.createRoot(document.getElementById("root")).render(
-    <div className="auth-wrap"><View /></div>
-  );
+  const routeRoot = ReactDOM.createRoot(document.getElementById("root"));
+  routeRoot.render(<div className="auth-wrap"><View /></div>);
+  window.__debugaiUnmountRoute = () => routeRoot.unmount();
 })();

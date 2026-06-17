@@ -861,7 +861,7 @@
           )}
           <span className="spacer" />
           <Button variant="secondary" size="sm"
-            onClick={() => window.location.href = "/playground?mode=audit"}>
+            onClick={() => window.DebugAIAppRouter ? window.DebugAIAppRouter.navigate("/playground?mode=audit") : window.location.href = "/playground?mode=audit"}>
             Audit prompt
           </Button>
           <Button variant={showRun ? "secondary" : "primary"} size="sm"
@@ -940,5 +940,7 @@
     );
   }
 
-  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  const routeRoot = ReactDOM.createRoot(document.getElementById("root"));
+  routeRoot.render(<App />);
+  window.__debugaiUnmountRoute = () => routeRoot.unmount();
 })();

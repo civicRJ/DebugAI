@@ -728,5 +728,7 @@
     );
   }
 
-  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  const routeRoot = ReactDOM.createRoot(document.getElementById("root"));
+  routeRoot.render(<App />);
+  window.__debugaiUnmountRoute = () => routeRoot.unmount();
 })();

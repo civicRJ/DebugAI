@@ -39,7 +39,7 @@ function Nav() {
         <div className="nav__spacer" />
         <div className="nav__actions">
           <Button variant="ghost" size="sm" onClick={() => window.location.href = "/login"}>Sign in</Button>
-          <Button variant="primary" size="sm" onClick={() => window.location.href = "/register"}>Start free</Button>
+          <Button variant="primary" size="sm" onClick={() => window.location.href = "#cta"}>Join beta</Button>
         </div>
       </div>
     </nav>
@@ -277,8 +277,8 @@ function Hero() {
           </div>
           <div className="hero__cta">
             <Button variant="primary" size="lg"
-              onClick={() => window.location.href = "/register"}>
-              Start debugging free
+              onClick={() => window.location.href = "#cta"}>
+              Join beta
             </Button>
             <Button variant="secondary" size="lg" mono
               onClick={() => window.location.href = "https://github.com/civicRJ/DebugAI"}>

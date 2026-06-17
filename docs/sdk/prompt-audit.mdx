@@ -1,0 +1,74 @@
+---
+title: audit_prompt()
+description: Scan system prompts for vulnerabilities, contradictions, weak rules, and dynamic attack probes.
+---
+
+## Signature
+
+```python
+debugai.audit_prompt(
+    system_prompt: str,
+    *,
+    use_case: str = "",
+    tools: list[str] | None = None,
+    retrieves_external_content: bool = False,
+    handles_secrets: bool = False,
+    output_schema: dict | None = None,
+    high_risk_actions: list[str] | None = None,
+    dynamic: bool = False,
+    llm: bool = False,
+    model: str | None = None,
+    api_key: str | None = None,
+    target_runner: Callable | None = None,
+) -> dict
+```
+
+## What It Detects
+
+- weak wording such as `try to`, `if possible`, or `be careful`
+- conflicting rules like “always answer” plus refusal or grounding rules
+- missing RAG / external-content trust boundaries
+- missing tool-use and human-approval policies
+- missing secret-handling and prompt-leakage rules
+- missing schema enforcement
+- excessive agency language
+- dynamic attack failures when `target_runner` is supplied
+
+## Example
+
+```python
+from debugai import audit_prompt
+
+audit = audit_prompt(
+    system_prompt=system_prompt,
+    use_case="Customer support RAG agent that can issue refunds",
+    tools=["refund_order", "send_email"],
+    retrieves_external_content=True,
+    handles_secrets=True,
+    high_risk_actions=["issue refunds", "send customer email"],
+    dynamic=True,
+)
+
+print(audit["grade"])
+print(audit["issues"])
+print(audit["patched_prompt"])
+```
+
+## Dynamic Runner
+
+Pass a callable to execute generated attack probes against your own app or test harness.
+
+```python
+def run_app(system_prompt, user_prompt, retrieved_context):
+    return my_llm_call(system_prompt=system_prompt, prompt=user_prompt, chunks=retrieved_context)
+
+audit = audit_prompt(
+    system_prompt=system_prompt,
+    use_case="RAG support bot",
+    retrieves_external_content=True,
+    dynamic=True,
+    target_runner=run_app,
+)
+```
+
+When no `target_runner` is provided, DebugAI still generates attack probes but marks them `not_run`.

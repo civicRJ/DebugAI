@@ -34,6 +34,7 @@
       "group": "SDK",
       "pages": [
         "sdk/analyze",
+        "sdk/prompt-audit",
         "sdk/wrap-llm",
         "sdk/completion",
         "sdk/config",

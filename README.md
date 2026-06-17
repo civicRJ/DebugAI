@@ -56,12 +56,32 @@ debugai report --example schema_violation --json
 debugai report cases.json --simulate
 ```
 
+Audit a prompt before shipping it:
+
+```python
+from debugai import audit_prompt
+
+audit = audit_prompt(
+    system_prompt=system_prompt,
+    use_case="Customer support RAG agent that can issue refunds",
+    tools=["refund_order", "send_email"],
+    retrieves_external_content=True,
+    handles_secrets=True,
+    high_risk_actions=["issue refunds", "send customer email"],
+    dynamic=True,
+)
+
+print(audit["grade"], audit["risk_score"])
+print(audit["issues"][0]["fix"])
+print(audit["patched_prompt"])
+```
+
 ## Architecture (implemented)
 
 | Layer | Type | Module | What it does |
 |------|------|--------|--------------|
 | 1 — Signal Extraction | deterministic | `debugai/signals.py` | Computes the 8-metric signal vector (small CPU models + fallbacks, lazy eval) |
-| 2 — Rule Engine | deterministic | `debugai/detectors.py`, `diagnosis.py` | 9 failure detectors → primary + secondary diagnosis |
+| 2 — Rule Engine | deterministic | `debugai/detectors.py`, `diagnosis.py` | Failure detectors across retrieval, grounding, tools, schema, prompt, safety, runtime → primary + secondary diagnosis |
 | 3 — LLM Explainer | probabilistic | `debugai/explainer.py` | Translates the diagnosis into human-readable explanation + fix (Claude; deterministic fallback) |
 | API | — | `debugai/analyze.py` | Level-1 single-call entry point |
 
@@ -73,11 +93,11 @@ context-output overlap · entity coverage · retrieval similarity · contradicti
 (NLI) · output variance (proxy) · latency · token-usage ratio · context-length
 ratio.
 
-### The 9 detectors (evaluation order)
-context overflow → schema violation → tool call failure → retrieval failure →
-citation failure → entity gap → hallucination → prompt brittleness → ambiguous
-prompt. All run; results are ranked by confidence; gate patterns prevent
-nonsensical combinations.
+### Detector layers
+runtime · schema · tool execution · retrieval · citation · knowledge-base gaps ·
+grounding/hallucination · prompt brittleness/ambiguity · prompt injection ·
+sensitive data leakage. All run; results are ranked by confidence; gate patterns
+prevent nonsensical combinations.
 
 ## Quickstart
 
@@ -118,6 +138,7 @@ debugai diagnose cases.json            # a capture dict, list, or {cases:[...]}
 debugai report --example tool_call_failure
 debugai examples                       # list built-in debugger cases
 debugai fix cases.json --simulate      # diagnose + propose & verify a fix
+debugai audit-prompt --system @prompt.txt --use-case "support RAG bot" --tool refund_order --dynamic
 debugai serve --port 8000              # launch the web app
 ```
 

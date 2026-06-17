@@ -33,7 +33,7 @@ MAX_TEXT = 20_000
 MAX_CHUNKS = 200
 MAX_CHUNK_LEN = 10_000
 
-from debugai import analyze
+from debugai import analyze, audit_prompt
 from debugai.agents import propose_fix
 from debugai.calibration import ThresholdStore
 from debugai.examples import example_cases
@@ -482,6 +482,19 @@ class AnalyzeRequest(BaseModel):
         return [c[:MAX_CHUNK_LEN] for c in v]
 
 
+class PromptAuditRequest(BaseModel):
+    system_prompt: str = Field(max_length=MAX_TEXT)
+    use_case: str = Field(default="", max_length=MAX_TEXT)
+    tools: list[str] | None = Field(default=None, max_length=100)
+    retrieves_external_content: bool = False
+    handles_secrets: bool = False
+    output_schema: dict | None = None
+    high_risk_actions: list[str] | None = Field(default=None, max_length=100)
+    dynamic: bool = True
+    llm: bool = False
+    model: str | None = Field(default=None, max_length=200)
+
+
 def _record(req_dict: dict, diagnosis: dict, owner: str) -> dict:
     return {
         "id": uuid.uuid4().hex[:12],
@@ -599,6 +612,30 @@ def api_analyze(req: AnalyzeRequest, user: dict = Depends(require_user)):
     except Exception:
         log.exception("analyze failed")
         raise HTTPException(status_code=400, detail="analysis failed")
+
+
+@app.post("/api/prompt-audit")
+def api_prompt_audit(req: PromptAuditRequest, user: dict = Depends(require_user)):
+    try:
+        owner = _effective_owner(user["id"])
+        # Hosted safety: use only the signed-in user's stored OpenAI key.
+        user_openai_key = auth_store.get_user_key(owner, "openai") or ""
+        return audit_prompt(
+            system_prompt=req.system_prompt,
+            use_case=req.use_case,
+            tools=req.tools or [],
+            retrieves_external_content=req.retrieves_external_content,
+            handles_secrets=req.handles_secrets,
+            output_schema=req.output_schema,
+            high_risk_actions=req.high_risk_actions or [],
+            dynamic=req.dynamic,
+            llm=req.llm,
+            model=req.model,
+            api_key=user_openai_key,
+        )
+    except Exception:
+        log.exception("prompt audit failed")
+        raise HTTPException(status_code=400, detail="prompt audit failed")
 
 
 @app.get("/api/diagnoses")

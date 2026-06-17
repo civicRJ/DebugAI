@@ -79,7 +79,7 @@ html, body { margin: 0; background: var(--bg-base); color: var(--text-primary); 
   min-height: 32px; display: flex; align-items: center;
 }
 .view-tab:hover { color: var(--text-primary); }
-.view-tab[data-active="true"] { background: var(--amber-muted); border-color: var(--amber-700); color: var(--amber-base); }
+.view-tab[data-active="true"], .view-tab.active { background: var(--amber-muted); border-color: var(--amber-700); color: var(--amber-base); }
 .dash-nav a.view-tab { margin-left: var(--space-2); border-left: 1px solid var(--border-subtle); padding-left: var(--space-4); border-radius: 0; }
 
 /* ── Stat cards ──────────────────────────────────────────────────────────── */
@@ -376,6 +376,14 @@ details .trace:last-child { border-bottom: none; }
 .pg-result { position: sticky; top: var(--space-4); }
 @media (max-width: 880px) { .pg-layout { grid-template-columns: 1fr; } .pg-result { position: static; } }
 .example-row { display: flex; gap: var(--space-2); flex-wrap: wrap; padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-faint); }
+.check-row {
+  display: flex; align-items: center; gap: var(--space-2);
+  min-height: 42px; padding: var(--space-2) var(--space-3);
+  background: var(--bg-surface); border: 1px solid var(--border-faint);
+  border-radius: var(--radius-sm); color: var(--text-secondary);
+  font-size: var(--text-sm); line-height: 1.3;
+}
+.check-row input { width: 16px; height: 16px; accent-color: var(--amber-base); flex-shrink: 0; }
 
 /* ── Playground empty state ──────────────────────────────────────────────── */
 .pg-empty {

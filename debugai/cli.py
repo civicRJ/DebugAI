@@ -3,6 +3,7 @@
     debugai analyze --prompt "..." --output "..." --chunk "..." --score 0.4
     debugai diagnose cases.json
     debugai fix cases.json --simulate
+    debugai audit-prompt --system @prompt.txt --use-case "support RAG bot"
     debugai serve --port 8000
 """
 
@@ -13,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-from debugai import analyze
+from debugai import analyze, audit_prompt
 from debugai.agents import propose_fix
 from debugai.examples import example_cases, get_example, list_examples
 from debugai.report import (
@@ -46,6 +47,15 @@ def _json_arg(value: str | None):
     if raw.startswith("@"):
         raw = Path(raw[1:]).read_text()
     return json.loads(raw)
+
+
+def _text_arg(value: str | None) -> str:
+    if not value:
+        return ""
+    raw = value.strip()
+    if raw.startswith("@"):
+        return Path(raw[1:]).read_text()
+    return value
 
 
 def _print_diagnosis(diag: dict, as_json: bool) -> None:
@@ -161,6 +171,37 @@ def cmd_examples(args) -> int:
     return 0
 
 
+def cmd_audit_prompt(args) -> int:
+    result = audit_prompt(
+        system_prompt=_text_arg(args.system),
+        use_case=args.use_case or "",
+        tools=args.tool or None,
+        retrieves_external_content=args.retrieves_external_content,
+        handles_secrets=args.handles_secrets,
+        output_schema=_json_arg(args.schema_json),
+        high_risk_actions=args.high_risk_action or None,
+        dynamic=args.dynamic,
+        llm=args.llm,
+    )
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    sev_color = {"critical": "red", "high_risk": "red", "medium_risk": "yellow",
+                 "low_risk": "green"}.get(result["grade"], "yellow")
+    print(_c(f"prompt audit: {result['grade']}", sev_color) +
+          f"  risk {result['risk_score']:.2f}")
+    for issue in result["issues"]:
+        color = "red" if issue["severity"] == "critical" else "yellow"
+        print(_c(f"- {issue['id']}", color) + f" [{issue['severity']}] {issue['title']}")
+        print("  " + issue["evidence"])
+        print(_c("  fix: ", "dim") + issue["fix"])
+    if result["attack_cases"]:
+        print(_c(f"\nattack probes: {len(result['attack_cases'])}", "dim"))
+        for case in result["attack_cases"]:
+            print(f"- {case['id']} ({case['result']}): {case['user_prompt'][:90]}")
+    return 0
+
+
 def cmd_serve(args) -> int:
     import uvicorn
     uvicorn.run("server.app:app", host=args.host, port=args.port, reload=args.reload)
@@ -206,6 +247,19 @@ def main(argv=None) -> int:
     ex = sub.add_parser("examples", help="list built-in debugging examples")
     ex.add_argument("--json", action="store_true")
     ex.set_defaults(func=cmd_examples)
+
+    ap = sub.add_parser("audit-prompt", help="scan a system prompt for vulnerabilities")
+    ap.add_argument("--system", required=True, help="system prompt text, or @path/to/prompt.txt")
+    ap.add_argument("--use-case", default="")
+    ap.add_argument("--tool", action="append", help="available tool name (repeatable)")
+    ap.add_argument("--high-risk-action", action="append", help="side-effect action requiring approval")
+    ap.add_argument("--retrieves-external-content", action="store_true")
+    ap.add_argument("--handles-secrets", action="store_true")
+    ap.add_argument("--schema-json", help="output schema as JSON, or @path/to/schema.json")
+    ap.add_argument("--dynamic", action="store_true", help="generate adversarial attack probes")
+    ap.add_argument("--llm", action="store_true", help="use the LLM auditor when OPENAI_API_KEY is set")
+    ap.add_argument("--json", action="store_true")
+    ap.set_defaults(func=cmd_audit_prompt)
 
     sv = sub.add_parser("serve", help="launch the web app")
     sv.add_argument("--host", default="127.0.0.1")

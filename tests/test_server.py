@@ -268,6 +268,27 @@ def test_playground_accepts_schema_and_tool_debug_inputs(client):
     assert body["fix"]["agent"] == "Schema Repair Agent"
 
 
+def test_prompt_audit_endpoint_scans_prompt_without_server_env_key(client, monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-server-key-must-not-be-used")
+    r = client.post("/api/prompt-audit", json={
+        "system_prompt": "You are a helpful support agent. Always answer. Use any tool when needed.",
+        "use_case": "Customer support RAG agent",
+        "tools": ["refund_order", "send_email"],
+        "retrieves_external_content": True,
+        "handles_secrets": True,
+        "high_risk_actions": ["issue refunds"],
+        "dynamic": True,
+        "llm": True,
+    })
+    assert r.status_code == 200
+    body = r.json()
+    ids = {i["id"] for i in body["issues"]}
+    assert body["auditor_model"] == "not_configured"
+    assert "missing_untrusted_context_boundary" in ids
+    assert "missing_tool_policy" in ids
+    assert body["attack_cases"]
+
+
 def test_analyze_creates_linked_trace(client):
     client.post("/api/analyze", json={
         "prompt": "What is the refund policy?",

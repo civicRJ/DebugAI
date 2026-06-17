@@ -634,9 +634,8 @@ def api_analyze(req: AnalyzeRequest, user: dict = Depends(require_user)):
 @app.post("/api/prompt-audit")
 def api_prompt_audit(req: PromptAuditRequest, user: dict = Depends(require_user)):
     try:
-        owner = _effective_owner(user["id"])
         # Hosted safety: use only the signed-in user's stored OpenAI key.
-        user_openai_key = auth_store.get_user_key(owner, "openai") or ""
+        user_openai_key = auth_store.get_user_key(user["id"], "openai") or ""
         return audit_prompt(
             system_prompt=req.system_prompt,
             use_case=req.use_case,

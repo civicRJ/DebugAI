@@ -686,25 +686,15 @@
   }
 
   // ── Authenticated app navigation ─────────────────────────────────────────
-  function AppNav({ current, view, setView, user, workspace, onWorkspaceSwitch, onLogout }) {
-    const isDashboard = current === "dashboard";
-    const viewItems = ["diagnoses", "traces", "sessions"];
+  function AppNav({ current, user, workspace, onWorkspaceSwitch, onLogout }) {
     return (
       <div className="app-nav" aria-label="DebugAI app navigation">
         <div className="app-nav__primary">
-          {isDashboard && <WorkspaceSwitcher workspace={workspace} onSwitch={onWorkspaceSwitch} />}
-          {isDashboard ? (
-            viewItems.map(v => (
-              <button key={v} className="app-nav__item" data-active={view === v}
-                onClick={() => setView(v)} type="button">
-                {v === "diagnoses" ? "Diagnoses" : v === "traces" ? "Traces" : "Sessions"}
-              </button>
-            ))
-          ) : (
-            <a className="app-nav__item" href="/dashboard">Dashboard</a>
-          )}
-          <a className="app-nav__item" data-active={!isDashboard} href="/playground">Playground</a>
+          <WorkspaceSwitcher workspace={workspace} onSwitch={onWorkspaceSwitch} />
+          <a className="app-nav__item" data-active={current === "dashboard"} href="/dashboard">Dashboard</a>
+          <a className="app-nav__item" data-active={current === "playground"} href="/playground">Playground</a>
           <a className="app-nav__item" href="/docs">Docs</a>
+          <a className="app-nav__item" href="/admin">Admin</a>
         </div>
         <div className="app-nav__account">
           <a className="app-nav__item app-nav__item--muted" href="/account">
@@ -821,16 +811,11 @@
               </svg>
             </div>
             <div>
-              <div className="dash-title">
-                DebugAI <span className="dash-title__suffix">/ dashboard</span>
-              </div>
-              <div className="dash-sub">signal → diagnosis → fix · live request feed</div>
+              <div className="dash-title">DebugAI</div>
             </div>
           </a>
           <AppNav
             current="dashboard"
-            view={view}
-            setView={setView}
             user={user}
             workspace={workspace}
             onWorkspaceSwitch={() => {}}
@@ -838,10 +823,26 @@
           />
         </div>
 
+        <div className="page-head">
+          <div>
+            <h1>Dashboard</h1>
+            <p>Diagnose failures, inspect traces, and harden prompts from one workspace.</p>
+          </div>
+        </div>
+
         {/* Toolbar */}
         <div className="dash-toolbar">
+          <div className="toolbar-group" role="tablist" aria-label="Dashboard view">
+            {["diagnoses", "traces", "sessions"].map(v => (
+              <button key={v} className="view-tab" data-active={view === v}
+                onClick={() => setView(v)} type="button">
+                {v === "diagnoses" ? "Diagnoses" : v === "traces" ? "Traces" : "Sessions"}
+              </button>
+            ))}
+          </div>
           {view === "diagnoses" ? (
             <>
+              <span className="toolbar-divider" />
               <Filter id={null} label="all" />
               {FAILURE_ORDER.map(id => <Filter key={id} id={id} label={FAILURE_LABELS[id]} />)}
               <input className="dash-search" type="search" value={query}
@@ -859,6 +860,10 @@
             </span>
           )}
           <span className="spacer" />
+          <Button variant="secondary" size="sm"
+            onClick={() => window.location.href = "/playground?mode=audit"}>
+            Audit prompt
+          </Button>
           <Button variant={showRun ? "secondary" : "primary"} size="sm"
             onClick={() => setShowRun(v => !v)}>
             {showRun ? "Close" : "+ Debug a bug"}

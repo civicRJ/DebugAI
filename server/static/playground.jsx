@@ -100,6 +100,12 @@
     }, null, 2),
     dynamic: true,
     llm: false,
+    model: "gpt-5.5",
+  };
+
+  const MODEL_OPTIONS = {
+    openai: ["gpt-5.5", "gpt-4o", "gpt-4o-mini"],
+    anthropic: ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"],
   };
 
   function parseJsonInput(value, fallback) {
@@ -127,6 +133,8 @@
       tool_calls: Array.isArray(parsedToolCalls)
         ? parsedToolCalls
         : parsedToolCalls ? [parsedToolCalls] : null,
+      model_name: f.model_name || null,
+      explain_with_llm: !!f.explain_with_llm,
       run_fix: true, simulate: true,
     };
   }
@@ -146,6 +154,7 @@
       output_schema: parseJsonInput(f.response_schema, null),
       dynamic: !!f.dynamic,
       llm: !!f.llm,
+      model: f.model || null,
     };
   }
 
@@ -175,6 +184,7 @@
           <a className="app-nav__item" href="/dashboard">Dashboard</a>
           <a className="app-nav__item" data-active={current === "playground"} href="/playground">Playground</a>
           <a className="app-nav__item" href="/docs">Docs</a>
+          <a className="app-nav__item" href="/admin">Admin</a>
         </div>
         <div className="app-nav__account">
           <a className="app-nav__item app-nav__item--muted" href="/account">
@@ -194,10 +204,19 @@
   }
 
   function App() {
-    const [mode, setMode] = useState("debug");
+    const initialMode = new URLSearchParams(window.location.search).get("mode") === "audit" ? "audit" : "debug";
+    const [mode, setMode] = useState(initialMode);
     const [user, setUser] = useState(null);
-    const [f, setF] = useState(EXAMPLE);
+    const [f, setF] = useState({ ...EXAMPLE, model_name: "claude-haiku-4-5-20251001", explain_with_llm: false });
     const [auditForm, setAuditForm] = useState(AUDIT_EXAMPLE);
+    const [llmSettings, setLlmSettings] = useState({
+      provider: "openai",
+      apiKey: "",
+      saving: false,
+      saved: false,
+      error: null,
+      keys: {},
+    });
     const [res, setRes] = useState(null);
     const [audit, setAudit] = useState(null);
     const [busy, setBusy] = useState(false);
@@ -221,7 +240,27 @@
         const data = await resp.json();
         setUser(data);
       }).catch(() => {});
+      fetch("/api/account/llm-keys").then(async resp => {
+        if (resp.ok) {
+          const keys = await resp.json();
+          setLlmSettings(p => ({ ...p, keys }));
+        }
+      }).catch(() => {});
     }, []);
+
+    useEffect(() => {
+      if (mode === "audit") {
+        setLlmSettings(p => ({ ...p, provider: "openai", error: null }));
+        if (!MODEL_OPTIONS.openai.includes(auditForm.model)) {
+          setAuditForm(p => ({ ...p, model: MODEL_OPTIONS.openai[0] }));
+        }
+      } else {
+        setLlmSettings(p => ({ ...p, provider: "anthropic", error: null }));
+        if (!MODEL_OPTIONS.anthropic.includes(f.model_name)) {
+          setF(p => ({ ...p, model_name: MODEL_OPTIONS.anthropic[0] }));
+        }
+      }
+    }, [mode]);
 
     // Debounced auto-analyze
     useEffect(() => {
@@ -290,6 +329,29 @@
       window.location.href = "/";
     };
 
+    const saveLlmKey = async () => {
+      const key = (llmSettings.apiKey || "").trim();
+      if (!key) {
+        setLlmSettings(p => ({ ...p, error: "Paste a key before saving." }));
+        return;
+      }
+      setLlmSettings(p => ({ ...p, saving: true, error: null, saved: false }));
+      try {
+        const resp = await fetch(`/api/account/llm-keys/${llmSettings.provider}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ key }),
+        });
+        if (!resp.ok) throw new Error("save failed");
+        const keysResp = await fetch("/api/account/llm-keys");
+        const keys = keysResp.ok ? await keysResp.json() : {};
+        setLlmSettings(p => ({ ...p, apiKey: "", saving: false, saved: true, keys }));
+        setTimeout(() => setLlmSettings(p => ({ ...p, saved: false })), 2200);
+      } catch (_) {
+        setLlmSettings(p => ({ ...p, saving: false, error: "Could not save that key." }));
+      }
+    };
+
     const ui = res && res.ui;
     const fix = res && res.fix;
     const auditIssues = audit && audit.issues ? audit.issues : [];
@@ -303,11 +365,17 @@
                 strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4" /></svg>
             </div>
             <div>
-              <div className="dash-title">Playground</div>
-              <div className="dash-sub">test bad outputs and audit prompts before production</div>
+              <div className="dash-title">DebugAI</div>
             </div>
           </a>
           <AppNav current="playground" user={user} onLogout={logout} />
+        </div>
+
+        <div className="page-head">
+          <div>
+            <h1>Playground</h1>
+            <p>Test bad outputs, audit prompts, and enable optional LLM review.</p>
+          </div>
         </div>
 
         <div className="playground-toolbar">
@@ -326,7 +394,55 @@
                 {showAdvanced ? "Simple view" : "Advanced view"}
               </button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => mode === "debug" ? setF(EXAMPLE) : setAuditForm(AUDIT_EXAMPLE)}>reset example</Button>
+            <Button variant="ghost" size="sm" onClick={() => mode === "debug" ? setF({ ...EXAMPLE, model_name: f.model_name, explain_with_llm: f.explain_with_llm }) : setAuditForm(AUDIT_EXAMPLE)}>reset example</Button>
+          </div>
+        </div>
+
+        <div className="llm-settings">
+          <div className="llm-settings__main">
+            <div className="field">
+              <label>Provider</label>
+              <select value={llmSettings.provider}
+                disabled
+                onChange={e => setLlmSettings(p => ({ ...p, provider: e.target.value, error: null }))}>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Model</label>
+              <select value={mode === "audit" ? auditForm.model : f.model_name}
+                onChange={e => {
+                  if (mode === "audit") setAuditForm(p => ({ ...p, model: e.target.value, llm: true }));
+                  else setF(p => ({ ...p, model_name: e.target.value }));
+                }}>
+                {(MODEL_OPTIONS[llmSettings.provider] || []).map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+            <div className="field llm-settings__key">
+              <label>API key</label>
+              <input type="password" value={llmSettings.apiKey}
+                onChange={e => setLlmSettings(p => ({ ...p, apiKey: e.target.value, error: null }))}
+                placeholder={llmSettings.keys[llmSettings.provider]?.set ? "Key saved · paste to replace" : "Paste provider key"} />
+            </div>
+            <Button variant="secondary" size="sm" onClick={saveLlmKey} disabled={llmSettings.saving}>
+              {llmSettings.saving ? "Saving…" : llmSettings.saved ? "Saved" : "Save key"}
+            </Button>
+          </div>
+          <div className="llm-settings__foot">
+            <span>{llmSettings.keys[llmSettings.provider]?.set ? "Encrypted key saved for this account." : "Optional: deterministic checks work without a key."}</span>
+            {mode === "debug" ? (
+              <label className="mini-check">
+                <input type="checkbox" checked={!!f.explain_with_llm} onChange={e => setF(p => ({ ...p, explain_with_llm: e.target.checked }))} />
+                Use saved Anthropic key for explanation
+              </label>
+            ) : (
+              <label className="mini-check">
+                <input type="checkbox" checked={!!auditForm.llm} onChange={setAuditField("llm")} />
+                Use saved OpenAI key for LLM audit
+              </label>
+            )}
+            {llmSettings.error && <span className="llm-settings__error">{llmSettings.error}</span>}
           </div>
         </div>
 

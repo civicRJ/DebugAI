@@ -45,7 +45,7 @@ from server.db import status as db_status
 from server.email import send_email_verification, send_password_reset, send_welcome
 from server.paths import data_path
 from server.security import install as install_security
-from server.store import DiagnosisStore, FeedbackStore, LeadStore, TraceStore
+from server.store import DiagnosisStore, FeedbackStore, LeadStore, TraceStore, TractionStore
 from server.ui_adapter import to_card
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -58,6 +58,7 @@ store = DiagnosisStore()
 trace_store = TraceStore()
 lead_store = LeadStore()
 feedback_store = FeedbackStore()
+traction_store = TractionStore()
 auth_store = AuthStore()
 
 # Per-user adaptive calibration: one ThresholdStore per account (§7.2).
@@ -238,6 +239,27 @@ class BetaLeadIn(BaseModel):
         if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
             raise ValueError("Enter a valid email address.")
         return email
+
+
+class TractionInterviewIn(BaseModel):
+    lead_email: str | None = Field(default="", max_length=320)
+    contact_name: str | None = Field(default="", max_length=120)
+    company: str | None = Field(default="", max_length=120)
+    source: str | None = Field(default="manual", max_length=80)
+    failure_summary: str = Field(max_length=1_200)
+    failure_type: str | None = Field(default="", max_length=80)
+    diagnosis_accepted: bool | None = None
+    fix_worked: bool | None = None
+    would_pay: bool | None = None
+    repeat_usage: bool | None = None
+    status: str | None = Field(default="new", max_length=40)
+    notes: str | None = Field(default="", max_length=2_000)
+
+
+def require_staff(user: dict = Depends(require_user)) -> dict:
+    if not auth_store.is_staff(user["id"]):
+        raise HTTPException(status_code=403, detail="Staff only")
+    return user
 
 
 @app.post("/api/beta/leads")
@@ -694,6 +716,25 @@ def api_confidence(user: dict = Depends(require_user)):
     return feedback_store.stats(owner=_effective_owner(user["id"]))
 
 
+@app.get("/api/admin/traction/interviews")
+def api_admin_traction_interviews(user: dict = Depends(require_staff)):
+    return {"items": traction_store.list(limit=100), "stats": traction_store.stats()}
+
+
+@app.post("/api/admin/traction/interviews")
+def api_admin_create_traction_interview(body: TractionInterviewIn, user: dict = Depends(require_staff)):
+    item = traction_store.add(body.model_dump())
+    return {"ok": True, "item": item, "stats": traction_store.stats()}
+
+
+@app.patch("/api/admin/traction/interviews/{item_id}")
+def api_admin_update_traction_interview(item_id: str, body: TractionInterviewIn, user: dict = Depends(require_staff)):
+    item = traction_store.update(item_id, body.model_dump())
+    if item is None:
+        raise HTTPException(status_code=404, detail="traction interview not found")
+    return {"ok": True, "item": item, "stats": traction_store.stats()}
+
+
 @app.get("/api/diagnoses")
 def api_diagnoses(failure: str | None = None,
                   q: str | None = Query(None, max_length=200),
@@ -1079,12 +1120,11 @@ def admin_page(request: Request):
 
 
 @app.get("/api/admin/stats")
-def api_admin_stats(user: dict = Depends(require_user)):
-    if not auth_store.is_staff(user["id"]):
-        raise HTTPException(status_code=403, detail="Staff only")
+def api_admin_stats(user: dict = Depends(require_staff)):
     diag_stats = store.stats()
     trace_stats = trace_store.stats()
     leads = lead_store.stats()
+    traction = traction_store.stats()
     activation = auth_store.activation_stats()
     diagnosis_users = {r.get("owner") for r in store.list(limit=500) if r.get("owner")}
     trace_users = {t.get("owner") for t in trace_store.list(limit=500) if t.get("owner")}
@@ -1106,6 +1146,7 @@ def api_admin_stats(user: dict = Depends(require_user)):
         },
         "diagnoses": diag_stats,
         "traces": trace_stats,
+        "traction": traction,
         "recent_users": auth_store.recent_users(10),
     }
 

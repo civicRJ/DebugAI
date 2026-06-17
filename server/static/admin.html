@@ -26,6 +26,17 @@
   .admin-bar__track { flex: 1; height: 8px; background: var(--bg-sunken); border-radius: var(--radius-full); overflow: hidden; }
   .admin-bar__fill { height: 100%; border-radius: var(--radius-full); background: var(--amber-base); }
   .admin-bar__count { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); min-width: 32px; text-align: right; }
+  .admin-form { display: grid; gap: var(--space-4); background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-5); margin-bottom: var(--space-6); }
+  .admin-form__grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+  .admin-form label { display: grid; gap: var(--space-2); color: var(--text-secondary); font-size: var(--text-xs); }
+  .admin-form input, .admin-form select, .admin-form textarea { width: 100%; min-width: 0; border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-base); color: var(--text-primary); font: inherit; font-size: var(--text-sm); padding: 10px 12px; }
+  .admin-form textarea { min-height: 92px; resize: vertical; line-height: 1.45; }
+  .admin-form__checks { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+  .admin-form__checks label { display: inline-flex; grid-template-columns: none; align-items: center; gap: var(--space-2); }
+  .admin-form__checks input { width: auto; }
+  .admin-form__actions { display: flex; align-items: center; gap: var(--space-3); }
+  .admin-form__msg { color: var(--text-tertiary); font-size: var(--text-xs); }
+  @media (max-width: 780px) { .admin-form__grid { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>

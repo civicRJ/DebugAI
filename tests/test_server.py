@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from server.app import (
     AnalyzeRequest, SESSION_COOKIE, app, auth_store, feedback_store, lead_store,
-    store, trace_store,
+    store, trace_store, traction_store,
 )
 
 
@@ -19,6 +19,7 @@ def client(tmp_path):
     trace_store.clear()
     lead_store.clear()
     feedback_store.clear()
+    traction_store.clear()
     auth_store.clear()
     c = TestClient(app)
     with c:
@@ -31,6 +32,7 @@ def client(tmp_path):
     trace_store.clear()
     lead_store.clear()
     feedback_store.clear()
+    traction_store.clear()
     auth_store.clear()
 
 
@@ -79,6 +81,51 @@ def test_admin_stats_include_traction_funnel(client, monkeypatch):
     assert body["funnel"]["leads"] == 1
     assert body["activation"]["users_with_api_tokens"] == 1
     assert body["activation"]["activated_product_users"] == 1
+    assert body["traction"]["failures_submitted"] == 0
+
+
+def test_admin_tracks_real_failure_interviews(client, monkeypatch):
+    monkeypatch.setenv("DEBUGAI_STAFF", "test@example.com")
+    r = client.post("/api/admin/traction/interviews", json={
+        "lead_email": "founder@example.com",
+        "contact_name": "Founder",
+        "company": "Acme AI",
+        "source": "dev.to",
+        "failure_summary": "RAG bot gave a 90-day refund answer from a 30-day policy.",
+        "failure_type": "hallucination",
+        "diagnosis_accepted": True,
+        "fix_worked": True,
+        "would_pay": True,
+        "repeat_usage": False,
+        "status": "fixed",
+        "notes": "Would pay if it catches this in CI.",
+    })
+    assert r.status_code == 200
+    item = r.json()["item"]
+    assert item["lead_email"] == "founder@example.com"
+
+    stats = client.get("/api/admin/stats").json()["traction"]
+    assert stats["failures_submitted"] == 1
+    assert stats["diagnosis_accepted"] == 1
+    assert stats["fix_worked"] == 1
+    assert stats["would_pay"] == 1
+    assert stats["repeat_usage"] == 0
+    assert stats["recent"][0]["failure_type"] == "hallucination"
+
+    updated = client.patch(f"/api/admin/traction/interviews/{item['id']}", json={
+        **item,
+        "repeat_usage": True,
+        "notes": "Asked for SDK install help.",
+    })
+    assert updated.status_code == 200
+    assert client.get("/api/admin/stats").json()["traction"]["repeat_usage"] == 1
+
+
+def test_admin_traction_requires_staff(client):
+    r = client.post("/api/admin/traction/interviews", json={
+        "failure_summary": "A bad output from a RAG bot.",
+    })
+    assert r.status_code == 403
 
 
 def test_analyze_stores_and_returns_ui(client):

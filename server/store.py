@@ -12,6 +12,7 @@ import json
 import os
 import time
 import threading
+import uuid
 from collections import Counter
 from pathlib import Path
 
@@ -22,6 +23,7 @@ _DATA = data_path("diagnoses.json")
 _TRACES = data_path("traces.json")
 _LEADS = data_path("leads.json")
 _FEEDBACK = data_path("feedback.json")
+_TRACTION = data_path("traction_interviews.json")
 _MAX = 500
 
 
@@ -330,6 +332,98 @@ class _JsonFeedbackStore:
             self._persist()
 
 
+class _JsonTractionStore:
+    def __init__(self, path: Path = _TRACTION, maxlen: int = 5_000):
+        self._path = path
+        self._max = maxlen
+        self._lock = threading.Lock()
+        self._items: list[dict] = self._load()
+
+    def _load(self) -> list[dict]:
+        try:
+            data = json.loads(self._path.read_text())
+            return data[-self._max:] if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    def _persist(self) -> None:
+        _atomic_write(self._path, json.dumps(self._items[-self._max:], indent=2))
+
+    @staticmethod
+    def _record(item: dict, existing: dict | None = None) -> dict:
+        now = time.time()
+        base = dict(existing or {})
+        base.update({
+            "lead_email": (item.get("lead_email") or "").strip().lower(),
+            "contact_name": (item.get("contact_name") or "").strip(),
+            "company": (item.get("company") or "").strip(),
+            "source": (item.get("source") or "manual").strip()[:80],
+            "failure_summary": (item.get("failure_summary") or "").strip(),
+            "failure_type": (item.get("failure_type") or "").strip(),
+            "diagnosis_accepted": item.get("diagnosis_accepted"),
+            "fix_worked": item.get("fix_worked"),
+            "would_pay": item.get("would_pay"),
+            "repeat_usage": item.get("repeat_usage"),
+            "status": (item.get("status") or "new").strip(),
+            "notes": (item.get("notes") or "").strip(),
+            "updated_at": now,
+        })
+        base.setdefault("id", item.get("id") or uuid.uuid4().hex)
+        base.setdefault("created_at", now)
+        return base
+
+    def add(self, item: dict) -> dict:
+        record = self._record(item)
+        with self._lock:
+            self._items.append(record)
+            del self._items[:-self._max]
+            self._persist()
+        return record
+
+    def update(self, item_id: str, item: dict) -> dict | None:
+        with self._lock:
+            for idx, existing in enumerate(self._items):
+                if existing.get("id") == item_id:
+                    self._items[idx] = self._record(item, existing=existing)
+                    self._persist()
+                    return self._items[idx]
+        return None
+
+    def list(self, limit: int = 100) -> list[dict]:
+        with self._lock:
+            return list(reversed(self._items))[:limit]
+
+    def stats(self) -> dict:
+        items = self.list(limit=self._max)
+        total = len(items)
+        submitted = sum(1 for i in items if i.get("failure_summary"))
+        accepted = sum(1 for i in items if i.get("diagnosis_accepted") is True)
+        fixes = [i for i in items if i.get("fix_worked") is not None]
+        would_pay = sum(1 for i in items if i.get("would_pay") is True)
+        repeat_usage = sum(1 for i in items if i.get("repeat_usage") is True)
+        by_status = Counter(i.get("status") or "new" for i in items)
+        by_failure = Counter(i.get("failure_type") or "unknown" for i in items)
+        return {
+            "total": total,
+            "failures_submitted": submitted,
+            "diagnosis_accepted": accepted,
+            "fix_worked": sum(1 for i in fixes if i.get("fix_worked") is True),
+            "would_pay": would_pay,
+            "repeat_usage": repeat_usage,
+            "accept_rate": round(accepted / (submitted or 1), 4),
+            "fix_success_rate": round(sum(1 for i in fixes if i.get("fix_worked") is True) / (len(fixes) or 1), 4),
+            "would_pay_rate": round(would_pay / (total or 1), 4),
+            "by_status": dict(by_status),
+            "by_failure": dict(by_failure),
+            "recent": items[:25],
+        }
+
+    def clear(self) -> None:
+        with self._lock:
+            self._items = []
+            self._persist()
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # PostgreSQL-backed stores (when DATABASE_URL is set)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -457,6 +551,7 @@ class _PgTraceStore:
         from sqlalchemy import text
         self._engine = get_engine()
         self._text = text
+        self._max = 5_000
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -587,6 +682,7 @@ class _PgLeadStore:
         from sqlalchemy import text
         self._engine = get_engine()
         self._text = text
+        self._max = 5_000
         self._init_schema()
 
     def _init_schema(self) -> None:
@@ -660,6 +756,142 @@ class _PgLeadStore:
             conn.execute(self._text("DELETE FROM beta_leads"))
 
 
+class _PgTractionStore:
+    def __init__(self):
+        from server.db import get_engine
+        from sqlalchemy import text
+        self._engine = get_engine()
+        self._text = text
+        self._max = 5_000
+        self._init_schema()
+
+    def _init_schema(self) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(self._text("""
+                CREATE TABLE IF NOT EXISTS traction_interviews (
+                    id                  TEXT PRIMARY KEY,
+                    lead_email          TEXT NOT NULL DEFAULT '',
+                    contact_name        TEXT NOT NULL DEFAULT '',
+                    company             TEXT NOT NULL DEFAULT '',
+                    source              TEXT NOT NULL DEFAULT 'manual',
+                    failure_summary     TEXT NOT NULL DEFAULT '',
+                    failure_type        TEXT NOT NULL DEFAULT '',
+                    diagnosis_accepted  BOOLEAN,
+                    fix_worked          BOOLEAN,
+                    would_pay           BOOLEAN,
+                    repeat_usage        BOOLEAN,
+                    status              TEXT NOT NULL DEFAULT 'new',
+                    notes               TEXT NOT NULL DEFAULT '',
+                    created_at          REAL NOT NULL,
+                    updated_at          REAL NOT NULL
+                )
+            """))
+            conn.execute(self._text(
+                "CREATE INDEX IF NOT EXISTS traction_interviews_updated ON traction_interviews (updated_at DESC)"))
+
+    @staticmethod
+    def _clean(item: dict, item_id: str | None = None) -> dict:
+        now = time.time()
+        return {
+            "id": item_id or item.get("id") or uuid.uuid4().hex,
+            "lead_email": (item.get("lead_email") or "").strip().lower(),
+            "contact_name": (item.get("contact_name") or "").strip(),
+            "company": (item.get("company") or "").strip(),
+            "source": (item.get("source") or "manual").strip()[:80],
+            "failure_summary": (item.get("failure_summary") or "").strip(),
+            "failure_type": (item.get("failure_type") or "").strip(),
+            "diagnosis_accepted": item.get("diagnosis_accepted"),
+            "fix_worked": item.get("fix_worked"),
+            "would_pay": item.get("would_pay"),
+            "repeat_usage": item.get("repeat_usage"),
+            "status": (item.get("status") or "new").strip(),
+            "notes": (item.get("notes") or "").strip(),
+            "created_at": item.get("created_at") or now,
+            "updated_at": now,
+        }
+
+    @staticmethod
+    def _row_to_dict(row) -> dict:
+        return {
+            "id": row.id,
+            "lead_email": row.lead_email,
+            "contact_name": row.contact_name,
+            "company": row.company,
+            "source": row.source,
+            "failure_summary": row.failure_summary,
+            "failure_type": row.failure_type,
+            "diagnosis_accepted": row.diagnosis_accepted,
+            "fix_worked": row.fix_worked,
+            "would_pay": row.would_pay,
+            "repeat_usage": row.repeat_usage,
+            "status": row.status,
+            "notes": row.notes,
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    def add(self, item: dict) -> dict:
+        record = self._clean(item)
+        with self._engine.begin() as conn:
+            conn.execute(self._text("""
+                INSERT INTO traction_interviews (
+                    id,lead_email,contact_name,company,source,failure_summary,
+                    failure_type,diagnosis_accepted,fix_worked,would_pay,
+                    repeat_usage,status,notes,created_at,updated_at
+                )
+                VALUES (
+                    :id,:lead_email,:contact_name,:company,:source,:failure_summary,
+                    :failure_type,:diagnosis_accepted,:fix_worked,:would_pay,
+                    :repeat_usage,:status,:notes,:created_at,:updated_at
+                )
+            """), record)
+        return record
+
+    def update(self, item_id: str, item: dict) -> dict | None:
+        existing = None
+        with self._engine.connect() as conn:
+            row = conn.execute(self._text(
+                "SELECT * FROM traction_interviews WHERE id=:id"), {"id": item_id}).fetchone()
+            if row:
+                existing = self._row_to_dict(row)
+        if existing is None:
+            return None
+        record = self._clean({**existing, **item, "created_at": existing.get("created_at")}, item_id=item_id)
+        with self._engine.begin() as conn:
+            conn.execute(self._text("""
+                UPDATE traction_interviews SET
+                    lead_email=:lead_email,
+                    contact_name=:contact_name,
+                    company=:company,
+                    source=:source,
+                    failure_summary=:failure_summary,
+                    failure_type=:failure_type,
+                    diagnosis_accepted=:diagnosis_accepted,
+                    fix_worked=:fix_worked,
+                    would_pay=:would_pay,
+                    repeat_usage=:repeat_usage,
+                    status=:status,
+                    notes=:notes,
+                    updated_at=:updated_at
+                WHERE id=:id
+            """), record)
+        return record
+
+    def list(self, limit: int = 100) -> list[dict]:
+        with self._engine.connect() as conn:
+            rows = conn.execute(self._text(
+                "SELECT * FROM traction_interviews ORDER BY updated_at DESC LIMIT :limit"),
+                {"limit": limit}).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def stats(self) -> dict:
+        return _JsonTractionStore.stats(self)  # type: ignore[misc]
+
+    def clear(self) -> None:
+        with self._engine.begin() as conn:
+            conn.execute(self._text("DELETE FROM traction_interviews"))
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Public constructors — pick the right backend automatically
 # ──────────────────────────────────────────────────────────────────────────────
@@ -687,3 +919,10 @@ def LeadStore() -> "_JsonLeadStore | _PgLeadStore":
 
 def FeedbackStore() -> _JsonFeedbackStore:
     return _JsonFeedbackStore()
+
+
+def TractionStore() -> "_JsonTractionStore | _PgTractionStore":
+    """Return the traction interview store for YC/customer discovery metrics."""
+    if DATABASE_URL:
+        return _PgTractionStore()
+    return _JsonTractionStore()

@@ -39,7 +39,7 @@ function Nav() {
         <div className="nav__spacer" />
         <div className="nav__actions">
           <Button variant="ghost" size="sm" onClick={() => window.location.href = "/login"}>Sign in</Button>
-          <Button variant="primary" size="sm" onClick={() => window.location.href = "#cta"}>Start free</Button>
+          <Button variant="primary" size="sm" onClick={() => window.location.href = "#cta"}>Send failure</Button>
         </div>
       </div>
     </nav>
@@ -264,9 +264,9 @@ function Hero() {
             <span className="sig">silently.</span>
           </h1>
           <p className="hero__lead">
-            DebugAI names the failing layer, explains why, and produces the fix
-            artifact. Drop one line into your stack to catch retrieval, grounding,
-            schema, tool, citation, prompt, runtime, and safety failures.
+            Paste a bad output or wrap one LLM call. DebugAI tells you whether
+            retrieval, grounding, schema, tool use, prompt rules, runtime, or
+            safety failed - with evidence and a concrete fix.
           </p>
           <div className="hero__proof">
             <div className="hero__proof-item"><b>8 core</b> + pipeline signals</div>
@@ -278,7 +278,7 @@ function Hero() {
           <div className="hero__cta">
             <Button variant="primary" size="lg"
               onClick={() => window.location.href = "#cta"}>
-              Start debugging free
+              Send a bad output
             </Button>
             <Button variant="secondary" size="lg" mono
               onClick={() => window.location.href = "https://github.com/civicRJ/DebugAI"}>

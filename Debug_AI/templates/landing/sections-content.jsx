@@ -219,6 +219,65 @@ function UseCases() {
   );
 }
 
+/* ── Demo cases ───────────────────────────────────────────────────────────── */
+const DEMO_STORIES = [
+  {
+    label: "01",
+    title: "RAG hallucination",
+    input: "Support bot says opened electronics get a 90-day cash refund.",
+    diagnosis: "hallucination · 95% confidence",
+    evidence: "Retrieved policy only supports 30 days and never mentions cash refund.",
+    fix: "Answer only from retrieved policy. Say not found when the answer is unsupported.",
+  },
+  {
+    label: "02",
+    title: "Prompt vulnerability audit",
+    input: "System prompt says always answer, never refuse, and issue refunds immediately.",
+    diagnosis: "conflicting rules + missing approval gate",
+    evidence: "Helpfulness can override privacy, eligibility, and tool approval constraints.",
+    fix: "Add priority order: safety, scope, grounding, approval, then helpfulness.",
+  },
+  {
+    label: "03",
+    title: "Tool/schema failure",
+    input: "Agent answers shipping cutoff without calling the required search tool.",
+    diagnosis: "tool_call_failure · schema risk",
+    evidence: "Expected tool search was never called, and no latest tool result grounded the answer.",
+    fix: "Require tool call before factual answer and retry with validation errors.",
+  },
+];
+
+function DemoCases() {
+  return (
+    <section className="section section--dark" id="demos">
+      <div className="shell">
+        <div className="section__head reveal">
+          <span className="ds-overline">Demo cases</span>
+          <h2>Three failures investors and users can understand fast.</h2>
+          <p>
+            Each demo shows the bad output, the named failure, the evidence, and
+            the concrete fix. Use these in videos, posts, and beta calls.
+          </p>
+        </div>
+        <div className="demo-cases reveal">
+          {DEMO_STORIES.map((d) => (
+            <article className="demo-case" key={d.title}>
+              <div className="demo-case__label">{d.label}</div>
+              <h3>{d.title}</h3>
+              <dl>
+                <div><dt>Bad case</dt><dd>{d.input}</dd></div>
+                <div><dt>Diagnosis</dt><dd>{d.diagnosis}</dd></div>
+                <div><dt>Evidence</dt><dd>{d.evidence}</dd></div>
+                <div><dt>Fix</dt><dd>{d.fix}</dd></div>
+              </dl>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ── CTA ──────────────────────────────────────────────────────────────────── */
 function CTA() {
   const { Button } = window.DesignSystem_90c6f1;
@@ -263,10 +322,11 @@ function CTA() {
         <div className="cta cta--beta reveal">
           <div className="cta__copy">
             <span className="ds-overline">Private beta</span>
-            <h2>Send one failing LLM trace. Get the root cause.</h2>
+            <h2>Send one bad LLM output. Get the root cause.</h2>
             <p>
-              DebugAI is onboarding teams building RAG apps, support bots, and AI agents.
-              Join the beta and we will help diagnose your first production-style failure.
+              We are onboarding teams building RAG apps, support bots, and AI agents.
+              Share one real failure and we will diagnose whether retrieval, prompt,
+              schema, tool use, grounding, or model behavior failed.
             </p>
             <div className="cta__actions">
               <Button variant="secondary" size="lg" onClick={() => window.location.href = "/register"}>
@@ -314,13 +374,13 @@ function CTA() {
               </select>
             </label>
             <label>
-              What are you trying to debug?
-              <textarea value={form.use_case} onChange={update("use_case")} placeholder="Example: support bot gives wrong policy answers even when retrieval looks good." rows="3" />
+              Paste one bad output or describe the failure
+              <textarea value={form.use_case} onChange={update("use_case")} placeholder="Example: user asked about opened electronics; bot answered 90-day cash refund, but policy says unopened electronics only within 30 days." rows="4" />
             </label>
             {state.error && <p className="beta-form__error" role="alert">{state.error}</p>}
-            {state.ok && <p className="beta-form__ok" role="status">You are on the beta list. We will follow up with a trace-debugging slot.</p>}
+            {state.ok && <p className="beta-form__ok" role="status">Got it. We will follow up with a trace-debugging slot and ask for the failing prompt/output if needed.</p>}
             <button className="beta-form__submit" type="submit" disabled={state.busy || state.ok}>
-              {state.ok ? "Joined beta" : state.busy ? "Joining..." : "Join beta"}
+              {state.ok ? "Failure submitted" : state.busy ? "Submitting..." : "Send failure"}
             </button>
           </form>
         </div>
@@ -355,5 +415,6 @@ function Footer() {
 window.DebugAIHowItWorks = HowItWorks;
 window.DebugAIFeatures = CodeSection;
 window.DebugAICTA = CTA;
+window.DebugAIDemoCases = DemoCases;
 window.DebugAIFooter = Footer;
 window.DebugAIUseCases = UseCases;

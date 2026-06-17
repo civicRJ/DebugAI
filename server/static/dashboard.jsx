@@ -914,10 +914,14 @@
               strokeWidth="1.5" width="40" height="40" aria-hidden="true">
               <path d="M3 12h4l3 8 4-16 3 8h4"/>
             </svg>
-            <h3>No diagnoses yet</h3>
-            <p>Paste a failing LLM call into "+ Debug a bug" to get a ranked diagnosis and a specific fix.</p>
+            <h3>Start with one real failure</h3>
+            <p>Paste a bad LLM output into "+ Debug a bug" or audit the system prompt that produced it. DebugAI returns the failure type, evidence, and fix.</p>
             <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap" }}>
               <Button variant="primary" size="sm" onClick={() => setShowRun(true)}>+ Debug a bug</Button>
+              <Button variant="secondary" size="sm"
+                onClick={() => window.DebugAIAppRouter ? window.DebugAIAppRouter.navigate("/playground?mode=audit") : window.location.href = "/playground?mode=audit"}>
+                Audit prompt
+              </Button>
               <Button variant="secondary" size="sm" onClick={loadSampleData} disabled={seeding}>
                 {seeding ? "Loading…" : "Load sample data"}
               </Button>

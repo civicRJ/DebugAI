@@ -5,7 +5,8 @@
       window.DesignSystem_90c6f1 &&
       window.DebugAINav && window.DebugAIHero &&
       window.DebugAIHowItWorks && window.DebugAIFeatures &&
-      window.DebugAIUseCases && window.DebugAICTA && window.DebugAIFooter
+      window.DebugAIUseCases && window.DebugAIDemoCases &&
+      window.DebugAICTA && window.DebugAIFooter
     );
   }
 
@@ -18,6 +19,7 @@
         {React.createElement(window.DebugAIHowItWorks)}
         {React.createElement(window.DebugAIFeatures)}
         {React.createElement(window.DebugAIUseCases)}
+        {React.createElement(window.DebugAIDemoCases)}
         {React.createElement(window.DebugAICTA)}
         {React.createElement(window.DebugAIFooter)}
       </div>

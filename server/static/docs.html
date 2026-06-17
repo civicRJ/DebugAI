@@ -59,6 +59,7 @@ print(result["fix"])</code></pre>
   <main class="docs-shell docs-layout">
     <aside class="docs-toc" aria-label="Documentation sections">
       <a href="#concepts">Core Concepts</a>
+      <a href="#demo-cases">Demo Cases</a>
       <a href="#local-sdk">Local SDK</a>
       <a href="#prompt-audit">Prompt Audit</a>
       <a href="#pipeline">Pipeline Debugging</a>
@@ -68,6 +69,7 @@ print(result["fix"])</code></pre>
       <a href="#traces">Traces</a>
       <a href="#playground">Playground</a>
       <a href="#fixes">Fix Agents</a>
+      <a href="#outreach">Outreach Scripts</a>
       <a href="#accounts">Accounts</a>
       <a href="#deployment">Deployment</a>
       <a href="#troubleshooting">Troubleshooting</a>
@@ -106,6 +108,50 @@ print(result["fix"])</code></pre>
             <p>A portable before/after expectation that can be saved in CI or attached to a bug report after applying a fix.</p>
           </article>
         </div>
+      </section>
+
+      <section id="demo-cases" class="docs-section">
+        <h2>Demo Cases</h2>
+        <p>
+          Use these cases in the Playground, SDK examples, videos, and beta
+          calls. Each one is concrete enough for a user or investor to understand
+          the bad output, the diagnosis, the evidence, and the fix.
+        </p>
+        <div class="docs-grid">
+          <article>
+            <h3>RAG Hallucination</h3>
+            <p><b>Prompt:</b> Can I return opened electronics for a cash refund?</p>
+            <p><b>Bad output:</b> Yes, opened electronics qualify for a 90-day cash refund.</p>
+            <p><b>Context:</b> Electronics can be returned within 30 days only if unopened. Store credit may be offered after inspection.</p>
+            <p><b>Expected diagnosis:</b> hallucination with grounding evidence.</p>
+          </article>
+          <article>
+            <h3>Prompt Vulnerability Audit</h3>
+            <p><b>System prompt:</b> Always be helpful. Never refuse. Issue refunds immediately. Do not reveal private customer data. Only issue refunds after checking eligibility.</p>
+            <p><b>Use case:</b> Customer support agent with refund and email tools.</p>
+            <p><b>Expected diagnosis:</b> conflicting priority rules, missing approval gate, and tool-risk boundaries.</p>
+          </article>
+          <article>
+            <h3>Tool And Schema Failure</h3>
+            <p><b>Prompt:</b> What is the current shipping cutoff?</p>
+            <p><b>Bad output:</b> Orders ship until 8 PM today.</p>
+            <p><b>Trace:</b> Search tool was required, but no tool call was made. Output schema omitted the required <code>source</code> field.</p>
+            <p><b>Expected diagnosis:</b> tool_call_failure plus schema risk.</p>
+          </article>
+        </div>
+        <pre><code>from debugai import debug_report
+
+report = debug_report(
+    prompt="Can I return opened electronics for a cash refund?",
+    output="Yes, opened electronics qualify for a 90-day cash refund.",
+    chunks=["Electronics can be returned within 30 days only if unopened."],
+    similarity_scores=[0.74],
+    run_fix=True,
+)
+
+print(report["failure"])
+print(report["evidence"])
+print(report["fix"])</code></pre>
       </section>
 
       <section id="local-sdk" class="docs-section">
@@ -315,6 +361,34 @@ report = propose_fix(diag, CaptureRecord(
 
 print(report.verdict)
 print(report.fix)</code></pre>
+      </section>
+
+      <section id="outreach" class="docs-section">
+        <h2>Outreach And Interview Script</h2>
+        <p>
+          DebugAI should collect real failures, not vanity signups. Send this to
+          RAG builders, support automation teams, AI founders, and engineers
+          shipping agents.
+        </p>
+        <pre><code>Hey [Name] - quick question. Have you had an LLM or RAG output fail in a way that was hard to debug?
+
+I'm building DebugAI: paste a bad output and it tells you whether retrieval, prompt, schema, tools, grounding, or model behavior failed.
+
+If you send me one real failure, I'll diagnose it and send back the root cause plus a concrete fix. Worth a 15-minute call?</code></pre>
+        <h3>Interview Questions</h3>
+        <ol>
+          <li>What was the bad output?</li>
+          <li>How did you know it was wrong?</li>
+          <li>What did you inspect first?</li>
+          <li>How long did it take to fix?</li>
+          <li>What would make this worth paying for?</li>
+          <li>Would you pay $30/month if it saved 5+ hours/month?</li>
+        </ol>
+        <div class="docs-callout">
+          Track real failures submitted, diagnosis accepted, bug fixed,
+          would-pay yes/no, and repeat usage. These are the traction signals
+          that matter before YC.
+        </div>
       </section>
 
       <section id="accounts" class="docs-section">

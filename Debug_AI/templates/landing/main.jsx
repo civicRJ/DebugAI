@@ -40,7 +40,13 @@
     if (!ready()) return setTimeout(boot, 30);
     const root = ReactDOM.createRoot(document.getElementById("root"));
     root.render(React.createElement(App));
-    requestAnimationFrame(() => setTimeout(mountRevealObserver, 60));
+    requestAnimationFrame(() => setTimeout(() => {
+      mountRevealObserver();
+      if (window.location.hash) {
+        const target = document.querySelector(window.location.hash);
+        if (target) target.scrollIntoView({ block: "start" });
+      }
+    }, 60));
   }
   boot();
 })();

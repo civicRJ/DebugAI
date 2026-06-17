@@ -31,6 +31,7 @@ function Nav() {
         <div className="nav__links">
           <a href="#how">How it works</a>
           <a href="#usecases">Use cases</a>
+          <a href="#cta">Beta</a>
           <a href="/pricing">Pricing</a>
           <a href="/docs">Docs</a>
           <a href="/dashboard">Dashboard</a>

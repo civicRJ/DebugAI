@@ -104,9 +104,45 @@
   };
 
   const MODEL_OPTIONS = {
-    openai: ["gpt-5.5", "gpt-4o", "gpt-4o-mini"],
-    anthropic: ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"],
+    openai: [
+      "gpt-5.5",
+      "gpt-5.4",
+      "gpt-5.4-mini",
+      "gpt-5.4-nano",
+      "gpt-5",
+      "gpt-5-mini",
+      "gpt-5-nano",
+      "gpt-4.1",
+      "gpt-4.1-mini",
+      "gpt-4.1-nano",
+      "gpt-4o",
+      "gpt-4o-mini",
+    ],
+    anthropic: [
+      "claude-fable-5",
+      "claude-mythos-5",
+      "claude-opus-4-8",
+      "claude-sonnet-4-6",
+      "claude-haiku-4-5-20251001",
+      "claude-opus-4-1-20250805",
+      "claude-opus-4-20250514",
+      "claude-sonnet-4-20250514",
+      "claude-3-7-sonnet-20250219",
+      "claude-3-5-sonnet-20241022",
+      "claude-3-5-haiku-20241022",
+      "claude-3-opus-20240229",
+      "claude-3-sonnet-20240229",
+      "claude-3-haiku-20240307",
+    ],
   };
+
+  function providerForModel(model) {
+    return (model || "").toLowerCase().startsWith("claude-") ? "anthropic" : "openai";
+  }
+
+  function firstModel(provider) {
+    return (MODEL_OPTIONS[provider] || MODEL_OPTIONS.openai)[0];
+  }
 
   function parseJsonInput(value, fallback) {
     const raw = (value || "").trim();
@@ -207,7 +243,7 @@
     const initialMode = new URLSearchParams(window.location.search).get("mode") === "audit" ? "audit" : "debug";
     const [mode, setMode] = useState(initialMode);
     const [user, setUser] = useState(null);
-    const [f, setF] = useState({ ...EXAMPLE, model_name: "claude-haiku-4-5-20251001", explain_with_llm: false });
+    const [f, setF] = useState({ ...EXAMPLE, model_name: "gpt-5.5", explain_with_llm: false });
     const [auditForm, setAuditForm] = useState(AUDIT_EXAMPLE);
     const [llmSettings, setLlmSettings] = useState({
       provider: "openai",
@@ -249,18 +285,9 @@
     }, []);
 
     useEffect(() => {
-      if (mode === "audit") {
-        setLlmSettings(p => ({ ...p, provider: "openai", error: null }));
-        if (!MODEL_OPTIONS.openai.includes(auditForm.model)) {
-          setAuditForm(p => ({ ...p, model: MODEL_OPTIONS.openai[0] }));
-        }
-      } else {
-        setLlmSettings(p => ({ ...p, provider: "anthropic", error: null }));
-        if (!MODEL_OPTIONS.anthropic.includes(f.model_name)) {
-          setF(p => ({ ...p, model_name: MODEL_OPTIONS.anthropic[0] }));
-        }
-      }
-    }, [mode]);
+      const selectedModel = mode === "audit" ? auditForm.model : f.model_name;
+      setLlmSettings(p => ({ ...p, provider: providerForModel(selectedModel), error: null }));
+    }, [mode, f.model_name, auditForm.model]);
 
     // Debounced auto-analyze
     useEffect(() => {
@@ -352,6 +379,15 @@
       }
     };
 
+    const switchProvider = provider => {
+      const model = firstModel(provider);
+      setLlmSettings(p => ({ ...p, provider, error: null, saved: false }));
+      if (mode === "audit") setAuditForm(p => ({ ...p, model, llm: true }));
+      else setF(p => ({ ...p, model_name: model }));
+    };
+
+    const providerLabel = llmSettings.provider === "anthropic" ? "Anthropic" : "OpenAI";
+
     const ui = res && res.ui;
     const fix = res && res.fix;
     const auditIssues = audit && audit.issues ? audit.issues : [];
@@ -394,7 +430,7 @@
                 {showAdvanced ? "Simple view" : "Advanced view"}
               </button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => mode === "debug" ? setF({ ...EXAMPLE, model_name: f.model_name, explain_with_llm: f.explain_with_llm }) : setAuditForm(AUDIT_EXAMPLE)}>reset example</Button>
+            <Button variant="ghost" size="sm" onClick={() => mode === "debug" ? setF({ ...EXAMPLE, model_name: f.model_name, explain_with_llm: f.explain_with_llm }) : setAuditForm({ ...AUDIT_EXAMPLE, model: auditForm.model, llm: auditForm.llm })}>reset example</Button>
           </div>
         </div>
 
@@ -403,8 +439,7 @@
             <div className="field">
               <label>Provider</label>
               <select value={llmSettings.provider}
-                disabled
-                onChange={e => setLlmSettings(p => ({ ...p, provider: e.target.value, error: null }))}>
+                onChange={e => switchProvider(e.target.value)}>
                 <option value="openai">OpenAI</option>
                 <option value="anthropic">Anthropic</option>
               </select>
@@ -434,12 +469,12 @@
             {mode === "debug" ? (
               <label className="mini-check">
                 <input type="checkbox" checked={!!f.explain_with_llm} onChange={e => setF(p => ({ ...p, explain_with_llm: e.target.checked }))} />
-                Use saved Anthropic key for explanation
+                Use saved {providerLabel} key for explanation
               </label>
             ) : (
               <label className="mini-check">
                 <input type="checkbox" checked={!!auditForm.llm} onChange={setAuditField("llm")} />
-                Use saved OpenAI key for LLM audit
+                Use saved {providerLabel} key for LLM audit
               </label>
             )}
             {llmSettings.error && <span className="llm-settings__error">{llmSettings.error}</span>}
@@ -453,7 +488,7 @@
               <>
                 <div className="example-row">
                   {Object.entries(EXAMPLES).map(([id, ex]) => (
-                    <button key={id} className="view-tab" type="button" onClick={() => setF(ex)}>
+                    <button key={id} className="view-tab" type="button" onClick={() => setF(p => ({ ...ex, model_name: p.model_name, explain_with_llm: p.explain_with_llm }))}>
                       {ex.label}
                     </button>
                   ))}

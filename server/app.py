@@ -634,8 +634,10 @@ def api_analyze(req: AnalyzeRequest, user: dict = Depends(require_user)):
 @app.post("/api/prompt-audit")
 def api_prompt_audit(req: PromptAuditRequest, user: dict = Depends(require_user)):
     try:
-        # Hosted safety: use only the signed-in user's stored OpenAI key.
-        user_openai_key = auth_store.get_user_key(user["id"], "openai") or ""
+        # Hosted safety: use only the signed-in user's stored key for the model's
+        # provider, never the server operator's environment keys.
+        provider = "anthropic" if (req.model or "").lower().startswith("claude-") else "openai"
+        user_llm_key = auth_store.get_user_key(user["id"], provider) or ""
         return audit_prompt(
             system_prompt=req.system_prompt,
             use_case=req.use_case,
@@ -647,7 +649,7 @@ def api_prompt_audit(req: PromptAuditRequest, user: dict = Depends(require_user)
             dynamic=req.dynamic,
             llm=req.llm,
             model=req.model,
-            api_key=user_openai_key,
+            api_key=user_llm_key,
         )
     except Exception:
         log.exception("prompt audit failed")

@@ -131,7 +131,13 @@ def analyze(
             result = _merge_instruction(result, jd)
 
     if explain_with_llm:
-        explanation = explain(diag, api_key=anthropic_api_key)
+        explain_kwargs = {
+            "openai_api_key": openai_api_key,
+            "anthropic_api_key": anthropic_api_key,
+        }
+        if model_name:
+            explain_kwargs["model"] = model_name
+        explanation = explain(diag, **explain_kwargs)
         result["explainer_model"] = explanation["model"]
         # Prefer the deterministic primary's own root_cause when the judge changed
         # the primary; otherwise use the LLM explanation.

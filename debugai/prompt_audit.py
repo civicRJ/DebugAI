@@ -467,6 +467,28 @@ _LLM_AUDIT_SYSTEM = (
 )
 
 
+def _provider_for_model(model: str) -> str:
+    return "anthropic" if (model or "").lower().startswith("claude-") else "openai"
+
+
+def _issues_from_llm_payload(data: dict[str, Any]) -> list[PromptIssue]:
+    return [
+        _issue(
+            id=str(i.get("id") or "llm_prompt_issue"),
+            severity=str(i.get("severity") or "warning"),
+            layer=str(i.get("layer") or "prompt"),
+            title=str(i.get("title") or "Prompt issue"),
+            evidence=str(i.get("evidence") or ""),
+            fix=str(i.get("fix") or ""),
+            patched_rule=str(i.get("patched_rule") or ""),
+            exploit=str(i.get("exploit") or ""),
+            detected_by=["llm_auditor"],
+        )
+        for i in data.get("issues", [])
+        if isinstance(i, dict)
+    ]
+
+
 def _llm_audit(
     system_prompt: str,
     use_case: str,
@@ -478,13 +500,12 @@ def _llm_audit(
     model: str,
     api_key: str | None,
 ) -> tuple[list[PromptIssue], str | None, str]:
-    effective_key = os.environ.get("OPENAI_API_KEY") if api_key is None else api_key
+    provider = _provider_for_model(model)
+    env_key = "ANTHROPIC_API_KEY" if provider == "anthropic" else "OPENAI_API_KEY"
+    effective_key = os.environ.get(env_key) if api_key is None else api_key
     if not effective_key:
         return [], None, "not_configured"
     try:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=effective_key, timeout=30.0, max_retries=1)
         payload = {
             "system_prompt": system_prompt,
             "use_case": use_case,
@@ -494,31 +515,32 @@ def _llm_audit(
             "output_schema": output_schema,
             "high_risk_actions": high_risk_actions,
         }
-        resp = client.chat.completions.create(
-            model=model,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": _LLM_AUDIT_SYSTEM},
-                {"role": "user", "content": json.dumps(payload, indent=2)},
-            ],
-        )
-        data = json.loads(resp.choices[0].message.content or "{}")
-        issues = [
-            _issue(
-                id=str(i.get("id") or "llm_prompt_issue"),
-                severity=str(i.get("severity") or "warning"),
-                layer=str(i.get("layer") or "prompt"),
-                title=str(i.get("title") or "Prompt issue"),
-                evidence=str(i.get("evidence") or ""),
-                fix=str(i.get("fix") or ""),
-                patched_rule=str(i.get("patched_rule") or ""),
-                exploit=str(i.get("exploit") or ""),
-                detected_by=["llm_auditor"],
+        if provider == "anthropic":
+            import anthropic
+
+            client = anthropic.Anthropic(api_key=effective_key, timeout=30.0, max_retries=1)
+            msg = client.messages.create(
+                model=model,
+                max_tokens=1400,
+                system=_LLM_AUDIT_SYSTEM,
+                messages=[{"role": "user", "content": json.dumps(payload, indent=2)}],
             )
-            for i in data.get("issues", [])
-            if isinstance(i, dict)
-        ]
-        return issues, data.get("patched_prompt"), f"openai:{model}"
+            text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+        else:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=effective_key, timeout=30.0, max_retries=1)
+            resp = client.chat.completions.create(
+                model=model,
+                response_format={"type": "json_object"},
+                messages=[
+                    {"role": "system", "content": _LLM_AUDIT_SYSTEM},
+                    {"role": "user", "content": json.dumps(payload, indent=2)},
+                ],
+            )
+            text = resp.choices[0].message.content or "{}"
+        data = json.loads(text)
+        return _issues_from_llm_payload(data), data.get("patched_prompt"), f"{provider}:{model}"
     except Exception as e:  # pragma: no cover - network dependent
         log.warning("prompt LLM audit failed (%s); continuing with static audit", e)
         return [], None, "error"

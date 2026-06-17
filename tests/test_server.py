@@ -294,6 +294,46 @@ def test_prompt_audit_endpoint_scans_prompt_without_server_env_key(client, monke
     assert body["attack_cases"]
 
 
+def test_prompt_audit_endpoint_uses_model_provider_key(client, monkeypatch):
+    import server.app as app_mod
+
+    user = auth_store.get_user_by_email("test@example.com")
+    auth_store.set_user_key(user["id"], "openai", "sk-user-openai")
+    auth_store.set_user_key(user["id"], "anthropic", "sk-user-anthropic")
+    calls = []
+
+    def fake_audit_prompt(**kwargs):
+        calls.append(kwargs)
+        return {
+            "healthy": True,
+            "risk_score": 0,
+            "grade": "low_risk",
+            "issues": [],
+            "attack_cases": [],
+            "patched_prompt": kwargs["system_prompt"],
+            "auditor_model": "fake",
+            "summary": "ok",
+        }
+
+    monkeypatch.setattr(app_mod, "audit_prompt", fake_audit_prompt)
+
+    r = client.post("/api/prompt-audit", json={
+        "system_prompt": "You are a bounded support assistant.",
+        "model": "claude-sonnet-4-6",
+        "llm": True,
+    })
+    assert r.status_code == 200
+    assert calls[-1]["api_key"] == "sk-user-anthropic"
+
+    r = client.post("/api/prompt-audit", json={
+        "system_prompt": "You are a bounded support assistant.",
+        "model": "gpt-5.5",
+        "llm": True,
+    })
+    assert r.status_code == 200
+    assert calls[-1]["api_key"] == "sk-user-openai"
+
+
 def test_pipeline_feedback_and_beta_workflow_endpoints(client):
     analyzed = client.post("/api/analyze", json={
         "prompt": "What is the refund policy?",

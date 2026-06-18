@@ -102,6 +102,22 @@
     llm: false,
     model: "gpt-5.5",
   };
+  const AGENT_EXAMPLE = {
+    goal: "Answer the current shipping cutoff using the shipping cutoff tool.",
+    expected_tools: "search_shipping_cutoff",
+    max_steps: "8",
+    max_tokens: "1200",
+    max_latency_ms: "10000",
+    requires_approval_for: "send customer email, issue refund",
+    events: JSON.stringify([
+      { type: "tool_call", tool: "search_shipping_cutoff", args: { q: "shipping cutoff" } },
+      { type: "tool_result", tool: "search_shipping_cutoff", output: "Today shipping cutoff is 3 PM." },
+      { type: "tool_call", tool: "search_shipping_cutoff", args: { q: "shipping cutoff" } },
+      { type: "tool_result", tool: "search_shipping_cutoff", output: "Today shipping cutoff is 3 PM." },
+      { type: "tool_call", tool: "search_shipping_cutoff", args: { q: "shipping cutoff" } },
+      { type: "final", output: "The current shipping cutoff is 8 PM today." },
+    ], null, 2),
+  };
 
   const MODEL_OPTIONS = {
     openai: [
@@ -194,6 +210,18 @@
     };
   }
 
+  function buildAgentBody(f) {
+    return {
+      goal: f.goal || "",
+      events: parseJsonInput(f.events, []),
+      expected_tools: splitList(f.expected_tools),
+      max_steps: f.max_steps ? parseInt(f.max_steps) : null,
+      max_tokens: f.max_tokens ? parseInt(f.max_tokens) : null,
+      max_latency_ms: f.max_latency_ms ? parseInt(f.max_latency_ms) : null,
+      requires_approval_for: splitList(f.requires_approval_for),
+    };
+  }
+
   function evidenceLines(res) {
     const p = res && res.diagnosis && res.diagnosis.primary;
     if (!p) return [];
@@ -240,11 +268,13 @@
   }
 
   function App() {
-    const initialMode = new URLSearchParams(window.location.search).get("mode") === "audit" ? "audit" : "debug";
+    const rawMode = new URLSearchParams(window.location.search).get("mode");
+    const initialMode = rawMode === "audit" ? "audit" : rawMode === "agent" ? "agent" : "debug";
     const [mode, setMode] = useState(initialMode);
     const [user, setUser] = useState(null);
     const [f, setF] = useState({ ...EXAMPLE, model_name: "gpt-5.5", explain_with_llm: false });
     const [auditForm, setAuditForm] = useState(AUDIT_EXAMPLE);
+    const [agentForm, setAgentForm] = useState(AGENT_EXAMPLE);
     const [llmSettings, setLlmSettings] = useState({
       provider: "openai",
       apiKey: "",
@@ -255,20 +285,24 @@
     });
     const [res, setRes] = useState(null);
     const [audit, setAudit] = useState(null);
+    const [agentReport, setAgentReport] = useState(null);
     const [busy, setBusy] = useState(false);
     const [auditBusy, setAuditBusy] = useState(false);
     const [err, setErr] = useState(null);
     const [auditErr, setAuditErr] = useState(null);
+    const [agentErr, setAgentErr] = useState(null);
     const [showAdvanced, setShowAdvanced] = useState(true);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const timer = useRef(null);
     const auditTimer = useRef(null);
+    const agentTimer = useRef(null);
     const set = k => e => setF(p => ({ ...p, [k]: e.target.value }));
     const setAuditField = k => e => {
       const value = e && e.target && e.target.type === "checkbox" ? e.target.checked : e.target.value;
       setAuditForm(p => ({ ...p, [k]: value }));
     };
+    const setAgentField = k => e => setAgentForm(p => ({ ...p, [k]: e.target.value }));
 
     useEffect(() => {
       fetch("/api/auth/me").then(async resp => {
@@ -332,6 +366,27 @@
       return () => clearTimeout(auditTimer.current);
     }, [auditForm, mode]);
 
+    useEffect(() => {
+      if (mode !== "agent") return;
+      if (!agentForm.events.trim()) { setAgentReport(null); return; }
+      clearTimeout(agentTimer.current);
+      agentTimer.current = setTimeout(async () => {
+        setBusy(true);
+        try {
+          const resp = await fetch("/api/agent-trace", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(buildAgentBody(agentForm)),
+          });
+          if (resp.status === 401) { window.location.href = "/login"; return; }
+          const r = await resp.json();
+          if (r && r.detail) { setAgentErr("Couldn't analyze agent trace — check the JSON."); return; }
+          setAgentReport(r); setAgentErr(null);
+        } catch (e) { setAgentErr("Couldn't reach the server."); }
+        finally { setBusy(false); }
+      }, 650);
+      return () => clearTimeout(agentTimer.current);
+    }, [agentForm, mode]);
+
     const applyFix = () => {
       const add = res && res.fix && res.fix.candidate && res.fix.candidate.system_prompt_additions;
       if (add) setF(p => ({ ...p, system_prompt: (p.system_prompt + "\n\n" + add).trim() }));
@@ -383,7 +438,7 @@
       const model = firstModel(provider);
       setLlmSettings(p => ({ ...p, provider, error: null, saved: false }));
       if (mode === "audit") setAuditForm(p => ({ ...p, model, llm: true }));
-      else setF(p => ({ ...p, model_name: model }));
+      else if (mode === "debug") setF(p => ({ ...p, model_name: model }));
     };
 
     const providerLabel = llmSettings.provider === "anthropic" ? "Anthropic" : "OpenAI";
@@ -391,6 +446,8 @@
     const ui = res && res.ui;
     const fix = res && res.fix;
     const auditIssues = audit && audit.issues ? audit.issues : [];
+    const agentUi = agentReport && agentReport.ui;
+    const agentPrimary = agentReport && agentReport.diagnosis && agentReport.diagnosis.primary;
 
     return (
       <div className="shell pg">
@@ -410,7 +467,7 @@
         <div className="page-head">
           <div>
             <h1>Playground</h1>
-            <p>Test bad outputs, audit prompts, and enable optional LLM review.</p>
+            <p>Test bad outputs, audit prompts, and diagnose agent runtime traces.</p>
           </div>
         </div>
 
@@ -422,6 +479,9 @@
             <button className={mode === "audit" ? "view-tab active" : "view-tab"} onClick={() => setMode("audit")} type="button">
               Prompt audit
             </button>
+            <button className={mode === "agent" ? "view-tab active" : "view-tab"} onClick={() => setMode("agent")} type="button">
+              Agent trace debugger
+            </button>
           </div>
           <div className="playground-toolbar__spacer" />
           <div className="playground-toolbar__group">
@@ -430,11 +490,11 @@
                 {showAdvanced ? "Simple view" : "Advanced view"}
               </button>
             )}
-            <Button variant="ghost" size="sm" onClick={() => mode === "debug" ? setF({ ...EXAMPLE, model_name: f.model_name, explain_with_llm: f.explain_with_llm }) : setAuditForm({ ...AUDIT_EXAMPLE, model: auditForm.model, llm: auditForm.llm })}>reset example</Button>
+            <Button variant="ghost" size="sm" onClick={() => mode === "debug" ? setF({ ...EXAMPLE, model_name: f.model_name, explain_with_llm: f.explain_with_llm }) : mode === "audit" ? setAuditForm({ ...AUDIT_EXAMPLE, model: auditForm.model, llm: auditForm.llm }) : setAgentForm(AGENT_EXAMPLE)}>reset example</Button>
           </div>
         </div>
 
-        <div className="llm-settings">
+        {mode !== "agent" && <div className="llm-settings">
           <div className="llm-settings__main">
             <div className="field">
               <label>Provider</label>
@@ -479,7 +539,7 @@
             )}
             {llmSettings.error && <span className="llm-settings__error">{llmSettings.error}</span>}
           </div>
-        </div>
+        </div>}
 
         <div className="pg-layout">
           {/* Editor pane */}
@@ -558,7 +618,7 @@
                   </span>
                 </div>
               </>
-            ) : (
+            ) : mode === "audit" ? (
               <>
                 <div className="field">
                   <label>System prompt</label>
@@ -608,6 +668,47 @@
                 <div className="run-actions" style={{ borderTop: "1px solid var(--border-faint)", paddingTop: "var(--space-3)", marginTop: "var(--space-1)" }}>
                   <span className="hint">
                     {auditBusy ? "Auditing…" : audit ? "Auto-audited · static + dynamic probes" : "Paste a prompt to audit."}
+                  </span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="field">
+                  <label>Agent goal</label>
+                  <textarea rows="3" value={agentForm.goal} onChange={setAgentField("goal")}
+                    placeholder="Resolve customer refund request using policy and refund tools." />
+                </div>
+                <div className="run-grid">
+                  <div className="field">
+                    <label>Expected tools</label>
+                    <input value={agentForm.expected_tools} onChange={setAgentField("expected_tools")} placeholder="search, refund_order" />
+                  </div>
+                  <div className="field">
+                    <label>Max steps · token budget</label>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input value={agentForm.max_steps} onChange={setAgentField("max_steps")} style={{ flex: 1 }} placeholder="8" />
+                      <input value={agentForm.max_tokens} onChange={setAgentField("max_tokens")} style={{ flex: 1 }} placeholder="1200" />
+                    </div>
+                  </div>
+                </div>
+                <div className="run-grid">
+                  <div className="field">
+                    <label>Latency budget ms</label>
+                    <input value={agentForm.max_latency_ms} onChange={setAgentField("max_latency_ms")} placeholder="10000" />
+                  </div>
+                  <div className="field">
+                    <label>Approval required for</label>
+                    <input value={agentForm.requires_approval_for} onChange={setAgentField("requires_approval_for")} placeholder="issue refund, send email" />
+                  </div>
+                </div>
+                <div className="field">
+                  <label>Agent events JSON</label>
+                  <textarea rows="16" value={agentForm.events} onChange={setAgentField("events")}
+                    placeholder={'[{"type":"tool_call","tool":"search","args":{"q":"refund"}},{"type":"tool_result","tool":"search","output":"30 days"},{"type":"final","output":"90 days"}]'} />
+                </div>
+                <div className="run-actions" style={{ borderTop: "1px solid var(--border-faint)", paddingTop: "var(--space-3)", marginTop: "var(--space-1)" }}>
+                  <span className="hint">
+                    {busy ? "Analyzing agent trace…" : agentReport ? "Auto-analyzed · deterministic agent signals" : "Paste an agent trace to diagnose runtime failures."}
                   </span>
                 </div>
               </>
@@ -668,7 +769,7 @@
                   </div>
                 )}
               </>
-            ) : (
+            ) : mode === "audit" ? (
               <>
                 {auditErr && <div className="error-banner" style={{ marginBottom: "var(--space-3)" }}>{auditErr}</div>}
                 {!audit ? (
@@ -717,6 +818,64 @@
                     )}
                     {audit.patched_prompt && (
                       <CodeBlock filename="patched-system-prompt.txt" language="text" showLineNumbers={false} code={audit.patched_prompt} />
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {agentErr && <div className="error-banner" style={{ marginBottom: "var(--space-3)" }}>{agentErr}</div>}
+                {!agentUi ? (
+                  <div className="pg-empty">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"
+                      width="32" height="32" style={{ color: "var(--text-quaternary)" }}>
+                      <path d="M3 12h4l3 8 4-16 3 8h4"/>
+                    </svg>
+                    <p>{agentForm.events ? "Analyzing…" : "Paste an agent trace to see loop/tool/runtime failures."}</p>
+                  </div>
+                ) : (
+                  <div style={{ display: "grid", gap: "var(--space-3)" }}>
+                    <DiagnosticCard
+                      severity={SEV[agentUi.severity] || "warn"}
+                      id={agentUi.id}
+                      title={agentUi.title}
+                      location={agentUi.explanation}
+                      confidence={agentUi.confidence}
+                      signals={agentUi.signals}
+                      fix={null}
+                    />
+                    {agentPrimary && (
+                      <div className="evidence-panel">
+                        <div className="evidence-panel__title">Failing agent step</div>
+                        <div className="evidence-panel__line">step {agentPrimary.step == null ? "-" : agentPrimary.step} · {agentPrimary.failure}</div>
+                        {Object.entries(agentPrimary.evidence || {}).map(([k, v]) => (
+                          <div key={k} className="evidence-panel__line">{k}: {JSON.stringify(v)}</div>
+                        ))}
+                      </div>
+                    )}
+                    {agentReport && agentReport.events && (
+                      <div className="evidence-panel">
+                        <div className="evidence-panel__title">Event timeline</div>
+                        {agentReport.events.slice(0, 10).map((event) => (
+                          <div key={event.index} className="evidence-panel__line">
+                            <strong>{event.index}</strong> · {event.type}{event.tool ? " · " + event.tool : ""}<br />
+                            <span className="hint">{event.text}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {agentReport && agentReport.fix && (
+                      <div className="fix" data-verdict={agentReport.fix.verdict}>
+                        <div className="fix__head">
+                          <Badge variant="warn" dot solid>{agentReport.fix.verdict}</Badge>
+                          <span className="fix__agent">{agentReport.fix.agent}</span>
+                        </div>
+                        <div className="fix__strategy">{agentReport.fix.candidate.strategy}</div>
+                        {agentReport.fix.candidate.notes && <div className="fix__notes">{agentReport.fix.candidate.notes}</div>}
+                      </div>
+                    )}
+                    {agentReport && agentReport.regression_artifact && (
+                      <CodeBlock filename="agent-regression.json" language="json" showLineNumbers={false} code={JSON.stringify(agentReport.regression_artifact, null, 2)} />
                     )}
                   </div>
                 )}

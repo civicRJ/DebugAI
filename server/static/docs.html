@@ -61,6 +61,7 @@ print(result["fix"])</code></pre>
       <a href="#concepts">Core Concepts</a>
       <a href="#demo-cases">Demo Cases</a>
       <a href="#local-sdk">Local SDK</a>
+      <a href="#agent-debugging">Agent Debugging</a>
       <a href="#prompt-audit">Prompt Audit</a>
       <a href="#pipeline">Pipeline Debugging</a>
       <a href="#wrap">Wrap An LLM</a>
@@ -138,6 +139,13 @@ print(result["fix"])</code></pre>
             <p><b>Trace:</b> Search tool was required, but no tool call was made. Output schema omitted the required <code>source</code> field.</p>
             <p><b>Expected diagnosis:</b> tool_call_failure plus schema risk.</p>
           </article>
+          <article>
+            <h3>Agent Runtime Loop</h3>
+            <p><b>Goal:</b> Answer the current shipping cutoff using the shipping tool.</p>
+            <p><b>Trace:</b> Agent calls <code>search_shipping_cutoff</code> three times with the same args.</p>
+            <p><b>Final answer:</b> Says cutoff is 8 PM even though the tool result said 3 PM.</p>
+            <p><b>Expected diagnosis:</b> tool_call_loop with ignored tool-result evidence.</p>
+          </article>
         </div>
         <pre><code>from debugai import debug_report
 
@@ -152,6 +160,49 @@ report = debug_report(
 print(report["failure"])
 print(report["evidence"])
 print(report["fix"])</code></pre>
+      </section>
+
+      <section id="agent-debugging" class="docs-section">
+        <h2>Debug Agent Traces</h2>
+        <p>
+          Agent Trace Debugger diagnoses runtime failures before the final answer:
+          repeated tool calls, wrong tools, missing tools, ignored tool results,
+          planner drift, missing approval gates, unsafe tool execution, and
+          runaway step/token/latency budgets.
+        </p>
+        <pre><code>from debugai import analyze_agent_trace
+
+report = analyze_agent_trace(
+    events=[
+        {"type": "tool_call", "tool": "search_shipping_cutoff", "args": {"q": "shipping cutoff"}},
+        {"type": "tool_result", "tool": "search_shipping_cutoff", "output": "Today cutoff is 3 PM."},
+        {"type": "tool_call", "tool": "search_shipping_cutoff", "args": {"q": "shipping cutoff"}},
+        {"type": "tool_result", "tool": "search_shipping_cutoff", "output": "Today cutoff is 3 PM."},
+        {"type": "tool_call", "tool": "search_shipping_cutoff", "args": {"q": "shipping cutoff"}},
+        {"type": "final", "output": "The current shipping cutoff is 8 PM today."},
+    ],
+    goal="Answer the current shipping cutoff using the shipping cutoff tool.",
+    expected_tools=["search_shipping_cutoff"],
+    max_steps=8,
+)
+
+print(report["diagnosis"]["primary"]["failure"])
+print(report["diagnosis"]["primary"]["root_cause"])
+print(report["fix"]["candidate"]["strategy"])</code></pre>
+        <h3>Event Types</h3>
+        <p>
+          The analyzer accepts raw JSON traces, LangChain-style event exports,
+          OpenAI/Anthropic tool-call traces, or a manual event list. Normalize
+          events into <code>llm</code>, <code>tool_call</code>, <code>tool_result</code>,
+          <code>observation</code>, <code>plan</code>, <code>final</code>,
+          <code>handoff</code>, <code>approval</code>, or <code>error</code>.
+        </p>
+        <pre><code>[
+  {"type": "plan", "output": "Need current cutoff, call shipping tool."},
+  {"type": "tool_call", "tool": "search_shipping_cutoff", "args": {"q": "shipping cutoff"}},
+  {"type": "tool_result", "tool": "search_shipping_cutoff", "output": "3 PM"},
+  {"type": "final", "output": "8 PM"}
+]</code></pre>
       </section>
 
       <section id="local-sdk" class="docs-section">
@@ -325,9 +376,10 @@ with session("support-ticket-42"):
       <section id="playground" class="docs-section">
         <h2>Playground</h2>
         <p>
-          The Playground is a non-storing workbench with Output Debugger and
-          Prompt Audit modes. Use it to understand why a bad output failed, or
-          to harden a system prompt before wiring the SDK into your app.
+          The Playground is a non-storing workbench with Output Debugger,
+          Prompt Audit, and Agent Trace Debugger modes. Use it to understand
+          why a bad output failed, harden a system prompt, or diagnose an agent
+          runtime trace before wiring the SDK into your app.
         </p>
         <ol>
           <li>Open <a href="/playground">Playground</a>.</li>
@@ -335,6 +387,7 @@ with session("support-ticket-42"):
           <li>Add retrieved chunks and similarity scores for RAG cases.</li>
           <li>Review the primary diagnosis and signal bars.</li>
           <li>Choose <b>Prompt audit</b> to scan system prompt vulnerabilities and get a patched prompt.</li>
+          <li>Choose <b>Agent trace debugger</b> to paste event JSON and detect loops, wrong tools, ignored tool results, missing approvals, and runaway budgets.</li>
         </ol>
       </section>
 

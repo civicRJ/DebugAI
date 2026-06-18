@@ -140,7 +140,7 @@
 @media (max-width: 768px) { .usecases-grid { grid-template-columns: 1fr; } }
 
 /* ── Demo cases ─────────────────────────────────────────────────────────── */
-.demo-cases { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); }
+.demo-cases { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-5); }
 .demo-case { min-width: 0; background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-xl); padding: var(--space-6); }
 .demo-case__label { font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: var(--weight-bold); color: var(--amber-base); letter-spacing: var(--tracking-caps); margin-bottom: var(--space-3); }
 .demo-case h3 { font-size: var(--text-h4); font-weight: var(--weight-semibold); margin: 0 0 var(--space-5); }
@@ -148,7 +148,8 @@
 .demo-case div { min-width: 0; }
 .demo-case dt { font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--text-tertiary); }
 .demo-case dd { margin: var(--space-1) 0 0; color: var(--text-secondary); font-size: var(--text-sm); line-height: 1.55; overflow-wrap: anywhere; }
-@media (max-width: 900px) { .demo-cases { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .demo-cases { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .demo-cases { grid-template-columns: 1fr; } }
 
 /* ── CTA section ─────────────────────────────────────────────────────────── */
 .cta { background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--radius-xl); padding: var(--space-16); text-align: center; box-shadow: var(--glow-amber); }

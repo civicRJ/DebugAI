@@ -19,6 +19,7 @@ from debugai.examples import example_cases, get_example, list_examples
 from debugai.evals import evaluate_corpus, evaluate_corpus_file, load_corpus
 from debugai.feedback import FeedbackEvent, FeedbackTracker
 from debugai.pipeline import analyze_pipeline
+from debugai.agent import analyze_agent_trace
 from debugai.metrics import metrics
 from debugai.prompt_audit import audit_prompt
 from debugai.report import debug_report, format_debug_report
@@ -33,7 +34,7 @@ from debugai.tracing import Trace, Span, Tracer, Score
 
 __all__ = [
     # Core
-    "analyze", "audit_prompt", "analyze_pipeline", "CaptureRecord",
+    "analyze", "audit_prompt", "analyze_pipeline", "analyze_agent_trace", "CaptureRecord",
     "debug_report", "format_debug_report",
     "load_corpus", "evaluate_corpus", "evaluate_corpus_file",
     "FeedbackEvent", "FeedbackTracker",
@@ -57,5 +58,5 @@ __all__ = [
     # Compare + budget
     "compare", "ComparisonResult", "BudgetExceededError",
 ]
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 __all__ += ["__version__"]

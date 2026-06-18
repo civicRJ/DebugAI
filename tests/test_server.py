@@ -320,6 +320,27 @@ def test_playground_accepts_schema_and_tool_debug_inputs(client):
     assert body["fix"]["agent"] == "Schema Repair Agent"
 
 
+def test_agent_trace_endpoint_detects_runtime_failures(client):
+    r = client.post("/api/agent-trace", json={
+        "goal": "Answer current shipping cutoff",
+        "expected_tools": ["search_shipping_cutoff"],
+        "max_steps": 8,
+        "events": [
+            {"type": "tool_call", "tool": "search_shipping_cutoff", "args": {"q": "shipping cutoff"}},
+            {"type": "tool_result", "tool": "search_shipping_cutoff", "output": "Cutoff is 3 PM today."},
+            {"type": "tool_call", "tool": "search_shipping_cutoff", "args": {"q": "shipping cutoff"}},
+            {"type": "tool_result", "tool": "search_shipping_cutoff", "output": "Cutoff is 3 PM today."},
+            {"type": "tool_call", "tool": "search_shipping_cutoff", "args": {"q": "shipping cutoff"}},
+            {"type": "final", "output": "The cutoff is 8 PM today."},
+        ],
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["diagnosis"]["primary"]["failure"] == "tool_call_loop"
+    assert body["fix"]["agent"] == "Agent Runtime Fix Agent"
+    assert body["ui"]["title"] == "Tool Call Loop"
+
+
 def test_prompt_audit_endpoint_scans_prompt_without_server_env_key(client, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-server-key-must-not-be-used")
     r = client.post("/api/prompt-audit", json={

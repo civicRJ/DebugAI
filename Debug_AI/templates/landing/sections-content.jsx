@@ -245,6 +245,14 @@ const DEMO_STORIES = [
     evidence: "Expected tool search was never called, and no latest tool result grounded the answer.",
     fix: "Require tool call before factual answer and retry with validation errors.",
   },
+  {
+    label: "04",
+    title: "Agent loop",
+    input: "Agent calls search_shipping_cutoff three times with the same args, then answers from memory.",
+    diagnosis: "tool_call_loop · ignored tool result",
+    evidence: "The latest tool result said 3 PM, but the final answer said 8 PM.",
+    fix: "Cache duplicate tool calls, stop after repeated actions, and ground final answers in tool results.",
+  },
 ];
 
 function DemoCases() {
@@ -253,7 +261,7 @@ function DemoCases() {
       <div className="shell">
         <div className="section__head reveal">
           <span className="ds-overline">Demo cases</span>
-          <h2>Three failures investors and users can understand fast.</h2>
+          <h2>Four failures investors and users can understand fast.</h2>
           <p>
             Each demo shows the bad output, the named failure, the evidence, and
             the concrete fix. Use these in videos, posts, and beta calls.

@@ -33,7 +33,7 @@ MAX_TEXT = 20_000
 MAX_CHUNKS = 200
 MAX_CHUNK_LEN = 10_000
 
-from debugai import analyze, analyze_pipeline, audit_prompt
+from debugai import analyze, analyze_agent_trace, analyze_pipeline, audit_prompt
 from debugai.agents import propose_fix
 from debugai.calibration import ThresholdStore
 from debugai.examples import example_cases
@@ -527,6 +527,16 @@ class PipelineAnalyzeRequest(BaseModel):
     stages: list[dict] = Field(default_factory=list, max_length=100)
 
 
+class AgentTraceRequest(BaseModel):
+    goal: str = Field(default="", max_length=MAX_TEXT)
+    events: list[dict] = Field(default_factory=list, max_length=200)
+    expected_tools: list[str] | None = Field(default=None, max_length=100)
+    max_steps: int | None = Field(default=None, ge=1, le=1_000)
+    max_tokens: int | None = Field(default=None, ge=1, le=10_000_000)
+    max_latency_ms: int | None = Field(default=None, ge=1)
+    requires_approval_for: list[str] | None = Field(default=None, max_length=100)
+
+
 class FeedbackIn(BaseModel):
     diagnosis_id: str = Field(max_length=80)
     accepted: bool
@@ -690,6 +700,39 @@ def api_pipeline_analyze(req: PipelineAnalyzeRequest, user: dict = Depends(requi
     except Exception:
         log.exception("pipeline analyze failed")
         raise HTTPException(status_code=400, detail="pipeline analysis failed")
+
+
+@app.post("/api/agent-trace")
+def api_agent_trace(req: AgentTraceRequest, user: dict = Depends(require_user)):
+    try:
+        report = analyze_agent_trace(
+            req.events,
+            goal=req.goal,
+            max_steps=req.max_steps,
+            expected_tools=req.expected_tools or [],
+            max_tokens=req.max_tokens,
+            max_latency_ms=req.max_latency_ms,
+            requires_approval_for=req.requires_approval_for or [],
+        )
+        primary = report.get("diagnosis", {}).get("primary")
+        signals = report.get("signals") or {}
+        ui = {
+            "severity": (primary or {}).get("severity", "ok") if primary else "ok",
+            "id": (primary or {}).get("failure", "healthy") if primary else "healthy",
+            "title": ((primary or {}).get("failure", "Healthy")).replace("_", " ").title() if primary else "Healthy agent trace",
+            "explanation": (primary or {}).get("root_cause", "No agent runtime failure detected."),
+            "confidence": (primary or {}).get("confidence", 1.0 if not primary else 0.0),
+            "signals": [
+                {"name": "step_count", "value": str(signals.get("step_count", 0)), "confidence": min(1, (signals.get("step_count", 0) or 0) / max(1, signals.get("max_steps") or 12)), "status": "critical" if primary and (primary.get("failure") == "runaway_cost_latency") else "trace"},
+                {"name": "repeated_action_score", "value": str(signals.get("repeated_action_score", 0)), "confidence": signals.get("repeated_action_score", 0), "status": "critical" if signals.get("repeated_action_score", 0) >= 0.45 else "trace"},
+                {"name": "tool_result_overlap", "value": str(signals.get("tool_result_overlap", 0)), "confidence": signals.get("tool_result_overlap", 0), "status": "critical" if primary and primary.get("failure") == "tool_result_ignored" else "trace"},
+                {"name": "approval_present", "value": str(signals.get("approval_present", False)).lower(), "confidence": 1.0 if signals.get("approval_present") else 0.0, "status": "critical" if primary and primary.get("failure") == "approval_gate_missing" else "trace"},
+            ],
+        }
+        return {**report, "ui": ui}
+    except Exception:
+        log.exception("agent trace analysis failed")
+        raise HTTPException(status_code=400, detail="agent trace analysis failed")
 
 
 @app.post("/api/feedback")

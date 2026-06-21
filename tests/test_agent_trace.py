@@ -1,4 +1,4 @@
-from debugai import analyze_agent_trace
+from debugai import agent_report, agent_run, analyze_agent_trace
 
 
 def _failure(report):
@@ -82,3 +82,36 @@ def test_healthy_agent_trace_not_flagged():
     )
     assert report["healthy"] is True
     assert report["diagnosis"]["primary"] is None
+
+
+def test_agent_run_context_manager_records_and_reports_loop():
+    with agent_run(
+        "refund-agent",
+        goal="Resolve customer refund request",
+        expected_tools=["search"],
+        max_steps=8,
+    ) as run:
+        run.plan("Look up refund policy before answering.")
+        for _ in range(3):
+            run.tool_call("search", {"q": "refund policy"})
+            run.tool_result("search", "30-day unopened electronics policy")
+
+    report = run.report()
+
+    assert _failure(report) == "tool_call_loop"
+    assert report["agent"] == "refund-agent"
+    assert report["events"][0]["agent"] == "refund-agent"
+
+
+def test_agent_report_accepts_agent_trace_dict():
+    report = agent_report({
+        "goal": "Check refund eligibility",
+        "expected_tools": ["lookup_policy"],
+        "events": [
+            {"type": "final", "output": "Approved."},
+        ],
+    })
+
+    failures = [i["failure"] for i in report["issues"]]
+    assert "missing_tool_call" in failures
+    assert "premature_final_answer" in failures

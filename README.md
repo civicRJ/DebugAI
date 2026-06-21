@@ -58,6 +58,27 @@ debugai report --example schema_violation --json
 debugai report cases.json --simulate
 ```
 
+Debug an agent control loop with the SDK recorder:
+
+```python
+from debugai import agent_run
+
+with agent_run(
+    "refund-agent",
+    goal="Check refund eligibility before answering",
+    expected_tools=["lookup_policy"],
+    max_steps=8,
+) as run:
+    run.plan("Need policy evidence before final answer.")
+    run.tool_call("lookup_policy", {"sku": "opened-electronics"})
+    run.tool_result("lookup_policy", "Opened electronics are not refundable.")
+    run.final("Opened electronics can get a full refund.")
+
+report = run.report()
+print(report["primary"]["failure"])  # tool_result_ignored
+print(report["fix"]["candidate"]["strategy"])
+```
+
 Audit a prompt before shipping it:
 
 ```python
@@ -114,6 +135,11 @@ prevent nonsensical combinations.
 - `analyze_pipeline()` diagnoses query rewrite, retrieval, tool execution,
   generation, and validation traces so you can fix the first bad stage instead
   of only staring at the final answer.
+- `agent_run()` records agent plans, tool calls, observations, approvals,
+  handoffs, memory reads/writes, and final answers; `agent_report()` diagnoses
+  loops, wrong tools, missing tools, ignored tool results, approval gaps,
+  planner drift, memory contradictions, handoff failures, unsafe tool inputs,
+  and runaway budgets.
 - `evaluate_corpus_file()` scores a labeled failure corpus for CI and regression
   tracking.
 - `FeedbackTracker` records whether users accepted a diagnosis and whether the
@@ -161,6 +187,7 @@ debugai fix cases.json --simulate      # diagnose + propose & verify a fix
 debugai audit-prompt --system @prompt.txt --use-case "support RAG bot" --tool refund_order --dynamic
 debugai eval failures.json             # score a labeled failure corpus
 debugai pipeline trace.json --json     # find the failing stage in a pipeline trace
+debugai agent agent_trace.json --json  # find the failing step in an agent loop
 debugai serve --port 8000              # launch the web app
 ```
 
@@ -226,13 +253,23 @@ signals.
 Pipeline and corpus APIs:
 
 ```python
-from debugai import analyze_pipeline, evaluate_corpus_file
+from debugai import agent_report, analyze_pipeline, evaluate_corpus_file
 
 pipeline = analyze_pipeline([
     {"id": "rewrite", "kind": "query_rewrite", "input": user_prompt, "output": retrieval_query},
     {"id": "retrieval", "kind": "retrieval", "input": retrieval_query, "chunks": chunks, "similarity_scores": scores},
     {"id": "generation", "kind": "generation", "output": llm_output, "chunks": chunks, "similarity_scores": scores},
 ], system_prompt=system_prompt, user_prompt=user_prompt)
+
+agent = agent_report({
+    "goal": "Resolve refund request",
+    "expected_tools": ["lookup_policy"],
+    "events": [
+        {"type": "tool_call", "tool": "lookup_policy", "args": {"sku": "opened-electronics"}},
+        {"type": "tool_result", "tool": "lookup_policy", "output": "Opened electronics are not refundable."},
+        {"type": "final", "output": "Opened electronics can get a full refund."},
+    ],
+})
 
 eval_result = evaluate_corpus_file("failures.json")
 ```

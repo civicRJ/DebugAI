@@ -170,21 +170,23 @@ print(report["fix"])</code></pre>
           planner drift, missing approval gates, unsafe tool execution, and
           runaway step/token/latency budgets.
         </p>
-        <pre><code>from debugai import analyze_agent_trace
+        <pre><code>from debugai import agent_run
 
-report = analyze_agent_trace(
-    events=[
-        {"type": "tool_call", "tool": "search_shipping_cutoff", "args": {"q": "shipping cutoff"}},
-        {"type": "tool_result", "tool": "search_shipping_cutoff", "output": "Today cutoff is 3 PM."},
-        {"type": "tool_call", "tool": "search_shipping_cutoff", "args": {"q": "shipping cutoff"}},
-        {"type": "tool_result", "tool": "search_shipping_cutoff", "output": "Today cutoff is 3 PM."},
-        {"type": "tool_call", "tool": "search_shipping_cutoff", "args": {"q": "shipping cutoff"}},
-        {"type": "final", "output": "The current shipping cutoff is 8 PM today."},
-    ],
+with agent_run(
+    "shipping-agent",
     goal="Answer the current shipping cutoff using the shipping cutoff tool.",
     expected_tools=["search_shipping_cutoff"],
     max_steps=8,
-)
+) as run:
+    run.plan("Need current cutoff, call shipping tool.")
+    run.tool_call("search_shipping_cutoff", {"q": "shipping cutoff"})
+    run.tool_result("search_shipping_cutoff", "Today cutoff is 3 PM.")
+    run.tool_call("search_shipping_cutoff", {"q": "shipping cutoff"})
+    run.tool_result("search_shipping_cutoff", "Today cutoff is 3 PM.")
+    run.tool_call("search_shipping_cutoff", {"q": "shipping cutoff"})
+    run.final("The current shipping cutoff is 8 PM today.")
+
+report = run.report()
 
 print(report["diagnosis"]["primary"]["failure"])
 print(report["diagnosis"]["primary"]["root_cause"])

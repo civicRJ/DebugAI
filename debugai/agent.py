@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import re
+from copy import deepcopy
 from collections import Counter, defaultdict
 from typing import Any
 
@@ -47,6 +48,104 @@ AGENT_FAILURE_FIXES = {
     "runaway_cost_latency": "Set step, token, retry, latency, and cost budgets with early termination and escalation.",
     "unsafe_tool_execution": "Treat retrieved/tool/user content as untrusted and never let it choose tools or arguments directly.",
 }
+
+
+class AgentRun:
+    """Lightweight recorder for agent control-loop events.
+
+    The recorder intentionally stores plain dictionaries so traces can be logged,
+    posted to the dashboard, or replayed through ``analyze_agent_trace()``.
+    """
+
+    def __init__(
+        self,
+        name: str | None = None,
+        *,
+        goal: str = "",
+        max_steps: int | None = None,
+        expected_tools: list[str] | None = None,
+        max_tokens: int | None = None,
+        max_latency_ms: int | None = None,
+        requires_approval_for: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.name = name or "agent"
+        self.goal = goal
+        self.max_steps = max_steps
+        self.expected_tools = list(expected_tools or [])
+        self.max_tokens = max_tokens
+        self.max_latency_ms = max_latency_ms
+        self.requires_approval_for = list(requires_approval_for or [])
+        self.metadata = dict(metadata or {})
+        self.events: list[dict[str, Any]] = []
+
+    def __enter__(self) -> "AgentRun":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> bool:
+        if exc is not None:
+            self.event("error", error=str(exc), error_type=getattr(exc_type, "__name__", str(exc_type)))
+        return False
+
+    def event(self, typ: str, **fields: Any) -> dict[str, Any]:
+        item = {"type": typ, **fields}
+        item.setdefault("agent", self.name)
+        self.events.append(item)
+        return item
+
+    def plan(self, content: Any, **fields: Any) -> dict[str, Any]:
+        return self.event("plan", content=content, **fields)
+
+    def llm(self, output: Any = None, **fields: Any) -> dict[str, Any]:
+        if output is not None:
+            fields.setdefault("output", output)
+        return self.event("llm", **fields)
+
+    def tool_call(self, tool: str, args: Any = None, **fields: Any) -> dict[str, Any]:
+        if args is not None:
+            fields.setdefault("args", args)
+        return self.event("tool_call", tool=tool, **fields)
+
+    def tool_result(self, tool: str, output: Any = None, **fields: Any) -> dict[str, Any]:
+        if output is not None:
+            fields.setdefault("output", output)
+        return self.event("tool_result", tool=tool, **fields)
+
+    def approval(self, action: str = "", approved: bool = True, **fields: Any) -> dict[str, Any]:
+        return self.event("approval", action=action, approved=approved, **fields)
+
+    def handoff(self, to: str = "", task: str = "", context: Any = "", **fields: Any) -> dict[str, Any]:
+        return self.event("handoff", to=to, task=task, context=context, **fields)
+
+    def memory_read(self, source: str = "", content: Any = "", **fields: Any) -> dict[str, Any]:
+        return self.event("observation", channel="memory_read", source=source, content=content, **fields)
+
+    def memory_write(self, target: str = "", content: Any = "", **fields: Any) -> dict[str, Any]:
+        return self.event("observation", channel="memory_write", target=target, content=content, **fields)
+
+    def final(self, output: Any, **fields: Any) -> dict[str, Any]:
+        return self.event("final", output=output, **fields)
+
+    def to_events(self) -> list[dict[str, Any]]:
+        return deepcopy(self.events)
+
+    def report(self, **overrides: Any) -> dict[str, Any]:
+        return agent_report(self, **overrides)
+
+    def _report_options(self) -> dict[str, Any]:
+        return {
+            "goal": self.goal,
+            "max_steps": self.max_steps,
+            "expected_tools": self.expected_tools,
+            "max_tokens": self.max_tokens,
+            "max_latency_ms": self.max_latency_ms,
+            "requires_approval_for": self.requires_approval_for,
+        }
+
+
+def agent_run(name: str | None = None, **kwargs: Any) -> AgentRun:
+    """Create an ``AgentRun`` recorder for SDK-first agent debugging."""
+    return AgentRun(name, **kwargs)
 
 
 def _tokens(text: Any) -> set[str]:
@@ -426,3 +525,58 @@ def analyze_agent_trace(
             "expected_after": {"healthy": True, "failure_absent": primary["failure"] if primary else None},
         },
     }
+
+
+def agent_report(
+    trace: AgentRun | list[dict[str, Any]] | dict[str, Any],
+    *,
+    goal: str | None = None,
+    max_steps: int | None = None,
+    expected_tools: list[str] | None = None,
+    max_tokens: int | None = None,
+    max_latency_ms: int | None = None,
+    requires_approval_for: list[str] | None = None,
+) -> dict[str, Any]:
+    """Return a DebugAI agent-runtime report from an ``AgentRun`` or event list."""
+    options: dict[str, Any] = {}
+    if isinstance(trace, AgentRun):
+        events = trace.to_events()
+        options.update(trace._report_options())
+        options["agent"] = trace.name
+        if trace.metadata:
+            options["metadata"] = deepcopy(trace.metadata)
+    elif isinstance(trace, dict):
+        events = trace.get("events") or trace.get("trace") or []
+        options.update({
+            "goal": trace.get("goal", ""),
+            "max_steps": trace.get("max_steps"),
+            "expected_tools": trace.get("expected_tools") or [],
+            "max_tokens": trace.get("max_tokens"),
+            "max_latency_ms": trace.get("max_latency_ms"),
+            "requires_approval_for": trace.get("requires_approval_for") or [],
+        })
+    else:
+        events = trace
+
+    overrides = {
+        "goal": goal,
+        "max_steps": max_steps,
+        "expected_tools": expected_tools,
+        "max_tokens": max_tokens,
+        "max_latency_ms": max_latency_ms,
+        "requires_approval_for": requires_approval_for,
+    }
+    options.update({k: v for k, v in overrides.items() if v is not None})
+    report = analyze_agent_trace(
+        events,
+        goal=options.get("goal") or "",
+        max_steps=options.get("max_steps"),
+        expected_tools=options.get("expected_tools") or None,
+        max_tokens=options.get("max_tokens"),
+        max_latency_ms=options.get("max_latency_ms"),
+        requires_approval_for=options.get("requires_approval_for") or None,
+    )
+    report["agent"] = options.get("agent")
+    if options.get("metadata"):
+        report["metadata"] = options["metadata"]
+    return report

@@ -62,6 +62,30 @@ Each diagnosis returns:
 - full signal vector
 - explanation text
 
+## Agent Runtime Debugging
+
+DebugAI includes a deterministic agent-loop analyzer for failures that happen before the final answer:
+
+- `agent_run()` context manager for SDK-first recording of plans, LLM steps, tool calls, tool results, approvals, handoffs, memory reads/writes, and final answers.
+- `agent_report()` for diagnosing an `AgentRun`, a raw event list, or a trace dictionary.
+- `analyze_agent_trace()` for lower-level deterministic event analysis.
+- CLI support through `debugai agent agent_trace.json --json`.
+
+Agent runtime failures detected:
+
+- `tool_call_loop` for repeated identical tool calls.
+- `wrong_tool_selected` when an agent calls a tool outside the expected allow-list.
+- `missing_tool_call` when the agent finalizes without a required tool.
+- `tool_result_ignored` when the final answer contradicts or ignores the latest observation.
+- `tool_arg_drift` when tool arguments lose the original goal/entities.
+- `planner_drift` when plans move away from the task.
+- `premature_final_answer` when the agent answers before required evidence exists.
+- `approval_gate_missing` for refunds, emails, account changes, database writes, code execution, or other high-risk actions without approval.
+- `state_memory_error` for contradictory state or memory updates.
+- `handoff_failure` for missing owner/task/context in multi-agent handoffs.
+- `runaway_cost_latency` for step, token, or latency budget overruns.
+- `unsafe_tool_execution` when untrusted instruction-like text reaches tool arguments.
+
 ## LLM Explanation
 
 - Optional Anthropic-powered explainer for human-readable root-cause summaries.

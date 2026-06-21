@@ -99,6 +99,23 @@ def test_pipeline_command_json(capsys, tmp_path):
     assert json.loads(capsys.readouterr().out)["primary"]["failure"] == "retrieval_failure"
 
 
+def test_agent_command_json(capsys, tmp_path):
+    trace = {
+        "goal": "Resolve refund request",
+        "expected_tools": ["search"],
+        "events": [
+            {"type": "tool_call", "tool": "search", "args": {"q": "refund policy"}},
+            {"type": "tool_result", "tool": "search", "output": "Opened electronics are not refundable."},
+            {"type": "final", "output": "Opened electronics can get a full refund."},
+        ],
+    }
+    f = tmp_path / "agent.json"
+    f.write_text(json.dumps(trace))
+    rc = cli.main(["agent", str(f), "--json"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out)["primary"]["failure"] == "tool_result_ignored"
+
+
 def test_report_command_example(capsys):
     rc = cli.main(["report", "--example", "citation_failure", "--json"])
     assert rc == 0

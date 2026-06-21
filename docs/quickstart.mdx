@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: From zero to your first diagnosis, prompt audit, and pipeline trace.
+description: From zero to your first diagnosis, prompt audit, pipeline trace, and agent trace.
 ---
 
 ## 1. Install
@@ -127,7 +127,41 @@ print(pipeline["primary"]["stage_id"])  # retrieval
 print(pipeline["primary"]["failure"])   # retrieval_failure
 ```
 
-## 5. Wrap your LLM client
+## 5. Debug an agent loop
+
+Use `agent_run()` when the problem is not only a bad final answer, but the
+agent's control loop: repeated tools, missing tools, ignored observations,
+planner drift, approval gaps, handoff failures, memory contradictions, or
+budget overruns.
+
+```python
+from debugai import agent_run
+
+with agent_run(
+    "refund-agent",
+    goal="Check refund eligibility before answering",
+    expected_tools=["lookup_policy"],
+    max_steps=8,
+) as run:
+    run.plan("Need policy evidence before final answer.")
+    run.tool_call("lookup_policy", {"sku": "opened-electronics"})
+    run.tool_result("lookup_policy", "Opened electronics are not refundable.")
+    run.final("Opened electronics can get a full refund.")
+
+report = run.report()
+
+print(report["primary"]["failure"])  # tool_result_ignored
+print(report["primary"]["root_cause"])
+print(report["fix"]["candidate"]["strategy"])
+```
+
+You can also diagnose a saved trace:
+
+```bash
+debugai agent agent_trace.json --json
+```
+
+## 6. Wrap your LLM client
 
 Drop one line into an existing OpenAI-compatible or Anthropic client. The LLM
 call stays the same; diagnosis and traces run in the background.

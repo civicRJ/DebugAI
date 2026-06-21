@@ -1,0 +1,108 @@
+---
+title: agent_run() and agent_report()
+description: Diagnose agent control-loop failures before the final answer.
+---
+
+Use `agent_run()` when you want to instrument an agent as it plans, calls tools,
+observes results, hands work off, checks approvals, updates memory, and produces
+a final answer.
+
+## Signature
+
+```python
+debugai.agent_run(
+    name: str | None = None,
+    *,
+    goal: str = "",
+    max_steps: int | None = None,
+    expected_tools: list[str] | None = None,
+    max_tokens: int | None = None,
+    max_latency_ms: int | None = None,
+    requires_approval_for: list[str] | None = None,
+    metadata: dict | None = None,
+) -> AgentRun
+```
+
+`agent_report()` accepts an `AgentRun`, a raw event list, or a trace dictionary
+with `events`, `goal`, `expected_tools`, and budget fields.
+
+## Example
+
+```python
+from debugai import agent_run
+
+with agent_run(
+    "refund-agent",
+    goal="Check refund eligibility before answering",
+    expected_tools=["lookup_policy"],
+    max_steps=8,
+) as run:
+    run.plan("Need policy evidence before final answer.")
+    run.tool_call("lookup_policy", {"sku": "opened-electronics"})
+    run.tool_result("lookup_policy", "Opened electronics are not refundable.")
+    run.final("Opened electronics can get a full refund.")
+
+report = run.report()
+
+print(report["healthy"])                     # False
+print(report["primary"]["failure"])          # tool_result_ignored
+print(report["primary"]["root_cause"])
+print(report["fix"]["candidate"]["strategy"])
+```
+
+## Event Methods
+
+| Method | Event type | Use |
+|---|---|---|
+| `run.plan(content)` | `plan` | Record planner intent |
+| `run.llm(output)` | `llm` | Record model reasoning/output step |
+| `run.tool_call(tool, args)` | `tool_call` | Record a tool/function call |
+| `run.tool_result(tool, output)` | `tool_result` | Record tool output or observation |
+| `run.approval(action, approved=True)` | `approval` | Record explicit approval gate |
+| `run.handoff(to, task, context)` | `handoff` | Record multi-agent handoff |
+| `run.memory_read(source, content)` | `observation` | Record memory/state read |
+| `run.memory_write(target, content)` | `observation` | Record memory/state write |
+| `run.final(output)` | `final` | Record final answer |
+| `run.event(type, **fields)` | custom | Record a raw event |
+
+## Detected Failures
+
+| Failure | Meaning |
+|---|---|
+| `tool_call_loop` | Repeated identical tool calls |
+| `wrong_tool_selected` | Tool outside the expected allow-list |
+| `missing_tool_call` | Required tool was skipped before final answer |
+| `tool_result_ignored` | Final answer ignored or contradicted the latest tool result |
+| `tool_arg_drift` | Tool arguments drifted away from the user goal/entities |
+| `planner_drift` | Plan moved away from the original task |
+| `premature_final_answer` | Agent answered before required evidence existed |
+| `approval_gate_missing` | High-risk action lacked an explicit approval event |
+| `state_memory_error` | Later state contradicted earlier memory or constraints |
+| `handoff_failure` | Handoff missed owner, task, or context |
+| `runaway_cost_latency` | Step, token, or latency budget was exceeded |
+| `unsafe_tool_execution` | Untrusted instruction-like text reached tool arguments |
+
+## Raw Trace
+
+```python
+from debugai import agent_report
+
+report = agent_report({
+    "goal": "Resolve refund request",
+    "expected_tools": ["lookup_policy"],
+    "events": [
+        {"type": "tool_call", "tool": "lookup_policy", "args": {"sku": "opened-electronics"}},
+        {"type": "tool_result", "tool": "lookup_policy", "output": "Opened electronics are not refundable."},
+        {"type": "final", "output": "Opened electronics can get a full refund."},
+    ],
+})
+```
+
+## CLI
+
+```bash
+debugai agent agent_trace.json --json
+```
+
+`agent_trace.json` can be a raw event list or an object containing `events`,
+`goal`, `expected_tools`, `max_steps`, `max_tokens`, and `max_latency_ms`.

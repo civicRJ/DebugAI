@@ -37,6 +37,7 @@
         "sdk/debug-report",
         "sdk/prompt-audit",
         "sdk/pipeline",
+        "sdk/agent",
         "sdk/evals",
         "sdk/feedback"
       ]

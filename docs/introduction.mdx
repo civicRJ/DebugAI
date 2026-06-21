@@ -56,7 +56,8 @@ The detector layer covers:
 | Retrieval | `retrieval_failure`, `retrieval_ambiguity`, `query_drift` |
 | Grounding | `hallucination`, `entity_gap`, `citation_failure` |
 | Contracts | `schema_violation`, `tool_call_failure`, `tool_result_ignored` |
-| Runtime | `context_overflow` |
+| Runtime | `context_overflow`, `runaway_cost_latency` |
+| Agents | `tool_call_loop`, `wrong_tool_selected`, `missing_tool_call`, `planner_drift`, `approval_gate_missing`, `handoff_failure`, `state_memory_error`, `unsafe_tool_execution` |
 | Prompt behavior | `prompt_brittleness`, `ambiguous_prompt`, `instruction_violation` |
 | Safety | `prompt_injection`, `sensitive_data_leak` |
 
@@ -92,6 +93,9 @@ The detector layer covers:
   probes against your own harness.
 - `analyze_pipeline()` points to the failing stage in a query rewrite,
   retrieval, tool, generation, or validation trace.
+- `agent_run()` and `agent_report()` diagnose agent control-loop failures such
+  as repeated tools, skipped tools, ignored observations, missing approvals,
+  handoff failures, memory contradictions, and runaway budgets.
 - `evaluate_corpus_file()` scores a labeled failure corpus so you can track
   detector accuracy over time.
 - `debug_report()` returns the product-level artifact most teams should log in

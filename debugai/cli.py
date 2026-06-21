@@ -14,7 +14,7 @@ import json
 import sys
 from pathlib import Path
 
-from debugai import analyze, analyze_pipeline, audit_prompt, evaluate_corpus_file
+from debugai import analyze, agent_report, analyze_pipeline, audit_prompt, evaluate_corpus_file
 from debugai.agents import propose_fix
 from debugai.examples import example_cases, get_example, list_examples
 from debugai.report import (
@@ -241,6 +241,26 @@ def cmd_pipeline(args) -> int:
     return 1
 
 
+def cmd_agent(args) -> int:
+    path = Path(args.file)
+    data = json.loads(path.read_text()) if path.exists() else _json_arg(args.file)
+    if isinstance(data, dict):
+        result = agent_report(data, goal=args.goal or None, expected_tools=args.expected_tool or None)
+    else:
+        result = agent_report(data or [], goal=args.goal, expected_tools=args.expected_tool or None)
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return 0
+    if result["healthy"]:
+        print(_c("agent trace healthy", "green"))
+        return 0
+    p = result["primary"]
+    print(_c(f"{p['failure']}", "red") + f"  conf {p['confidence']}")
+    print("  " + p["root_cause"])
+    print(_c("  fix: ", "dim") + p["fix"])
+    return 1
+
+
 def cmd_serve(args) -> int:
     import uvicorn
     uvicorn.run("server.app:app", host=args.host, port=args.port, reload=args.reload)
@@ -311,6 +331,13 @@ def main(argv=None) -> int:
     pl.add_argument("file", help="JSON file or @path containing {'stages': [...]}")
     pl.add_argument("--json", action="store_true")
     pl.set_defaults(func=cmd_pipeline)
+
+    ag = sub.add_parser("agent", help="diagnose an agent runtime trace JSON file")
+    ag.add_argument("file", help="JSON file, @path, or inline JSON with {'events': [...]}")
+    ag.add_argument("--goal", default="", help="agent goal when the trace is a raw event list")
+    ag.add_argument("--expected-tool", action="append", help="required tool name for raw event lists")
+    ag.add_argument("--json", action="store_true")
+    ag.set_defaults(func=cmd_agent)
 
     sv = sub.add_parser("serve", help="launch the web app")
     sv.add_argument("--host", default="127.0.0.1")
